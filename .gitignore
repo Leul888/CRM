@@ -1,0 +1,16 @@
+logs
+*.log
+npm-debug.log*
+node_modules
+dist
+dist-ssr
+*.local
+.vercel
+.netlify
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+server-dist
+data
+.env
