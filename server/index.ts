@@ -8,10 +8,12 @@ import { CRMEngine } from '../core/engine';
 import { buildEmptyState, buildSeedState, uid } from '../core/seed';
 import { can, isAdminRole } from '../services/permissions';
 import { SERVICE_TYPES, isEmail } from '../services/format';
-import { DB_PATH, audit, db, loadState, pruneAudit, saveState, wipeState } from './db';
+import { DATA_DIR, DB_PATH, audit, db, getMeta, loadState, pruneAudit, saveState, setMeta, wipeState } from './db';
 import {
   activeSessionCount,
+  INVITE_TTL_MS,
   burnTime,
+  clearAllCredentials,
   consumeResetToken,
   createResetToken,
   createSession,
@@ -21,6 +23,7 @@ import {
   getCredential,
   getCredentialByEmail,
   passwordProblem,
+  peekResetToken,
   pruneSessions,
   rateLimited,
   revokeUserSessions,
@@ -52,6 +55,7 @@ const seedDemo = () => {
   if (process.env.COMPANY_NAME) engine.state.settings.companyName = process.env.COMPANY_NAME.trim().slice(0, 120);
   if (/^#[0-9a-f]{6}$/i.test(process.env.BRAND_COLOR || '')) engine.state.settings.brandColor = process.env.BRAND_COLOR!.toLowerCase();
   saveState(engine.state);
+  setMeta('demo_workspace', '1');
   for (const u of engine.state.users) setPassword(u.id, u.email, DEMO_PASSWORD, false);
   console.log(`[boot] demo workspace seeded — every demo user's password is "${DEMO_PASSWORD}"`);
 };
@@ -67,6 +71,26 @@ const newAdmin = (name: string, email: string): User => ({
   serviceCapabilities: [...SERVICE_TYPES],
   calendarColor: '#4B3AB3',
 });
+
+/**
+ * Going live: when SEED_DEMO is turned off on a disk that still holds the demo workspace,
+ * the demo data and its shared-password accounts are cleared (after a JSON backup) so the
+ * real company starts clean via ADMIN_EMAIL or first-time setup.
+ */
+const isDemoWorkspace = () => getMeta('demo_workspace') === '1' || engine.state.users?.some((u) => u.id === 'user_owner');
+if (!DEMO && hasWorkspace() && isDemoWorkspace()) {
+  const file = path.join(DATA_DIR, `demo-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(engine.state));
+  } catch (e) {
+    console.error('[boot] could not write demo backup', e);
+  }
+  wipeState();
+  clearAllCredentials();
+  setMeta('demo_workspace', '0');
+  engine.state = { users: [] } as unknown as CRMState;
+  console.log(`[boot] SEED_DEMO is off: demo workspace removed (backup: ${file})`);
+}
 
 if (!hasWorkspace()) {
   if (DEMO) seedDemo();
@@ -349,6 +373,48 @@ app.post('/api/auth/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- invitations: a one-time link where a new user picks their own password
+const baseUrl = (req: Request) => APP_URL || `${req.protocol}://${req.get('host')}`;
+const issueInvite = (req: Request, inviter: User, target: User) => {
+  const link = `${baseUrl(req)}/#invite/${createResetToken(target.id, INVITE_TTL_MS)}`;
+  let emailed = false;
+  if (providers.email && req.body?.sendInvite !== false) {
+    emailed = true;
+    const company = engine.state.settings.companyName;
+    void sendEmailNow(
+      target.email,
+      `You're invited to ${company}`,
+      `Hi ${target.name},\n\n${inviter.name} invited you to ${company}'s workspace.\n\nSet your password and sign in here (the link works once and expires in 7 days):\n${link}\n\nYour sign-in email is ${target.email}.`,
+      company,
+    ).catch((e) => console.error('[invite]', e));
+  }
+  audit(inviter.id, 'admin.invite_sent', `${target.email}${emailed ? ' (emailed)' : ' (link copied)'}`, ip(req));
+  return { inviteLink: link, emailed };
+};
+
+app.get('/api/auth/invite/:token', (req, res) => {
+  if (rateLimited(`invite-view:${ip(req)}`, 30, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts.' });
+  const userId = peekResetToken(String(req.params.token));
+  const user = userId ? engine.state.users.find((u) => u.id === userId && u.active) : undefined;
+  if (!user) return res.status(404).json({ error: 'This invitation is invalid, already used, or expired. Ask your admin for a new link.' });
+  res.json({ name: user.name, email: user.email, companyName: engine.state.settings.companyName });
+});
+
+app.post('/api/auth/accept-invite', (req, res) => {
+  const { token, password } = req.body || {};
+  if (rateLimited(`invite:${ip(req)}`, 10, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts.' });
+  const problem = passwordProblem(password);
+  if (problem) return res.status(400).json({ error: problem });
+  const peek = typeof token === 'string' ? peekResetToken(token) : null;
+  const user = peek ? engine.state.users.find((u) => u.id === peek && u.active) : undefined;
+  if (!user || consumeResetToken(token) !== user.id) return res.status(400).json({ error: 'This invitation is invalid, already used, or expired. Ask your admin for a new link.' });
+  setPassword(user.id, user.email, password, false);
+  revokeUserSessions(user.id);
+  createSession(req, res, user.id, false);
+  audit(user.id, 'auth.invite_accepted', undefined, ip(req));
+  res.json({ user, mustChangePassword: false });
+});
+
 // ----- account (any signed-in user)
 app.patch('/api/account/profile', requireUser(), (req, res) => {
   const r = req as Authed;
@@ -564,26 +630,42 @@ app.post('/api/admin/users', requireUser(), (req, res) => {
   if (!can(r.user, 'team:manage')) return res.status(403).json({ error: 'Only owners and managers can add users.' });
   const v = validateUserInput(r.user, req.body || {});
   if (v.error || !v.user) return res.status(400).json({ error: v.error });
-  const given = req.body?.password;
-  if (given) {
+  const mode: 'invite' | 'temp' | 'set' = req.body?.accessMode === 'temp' || req.body?.accessMode === 'set' ? req.body.accessMode : 'invite';
+  const given = mode === 'set' ? req.body?.password : undefined;
+  if (mode === 'set') {
     const problem = passwordProblem(given);
     if (problem) return res.status(400).json({ error: problem });
   }
-  const tempPassword = given || generateTempPassword();
+  // Invite mode: an unguessable placeholder password nobody knows; the link sets the real one.
+  const tempPassword = mode === 'invite' ? `${generateTempPassword()}${generateTempPassword()}` : given || generateTempPassword();
   engine.state.users = [...engine.state.users, v.user];
   persist();
   setPassword(v.user.id, v.user.email, tempPassword, true);
   audit(r.user.id, 'admin.user_created', `${v.user.email} (${v.user.role})`, ip(req));
+  if (mode === 'invite') {
+    const inv = issueInvite(req, r.user, v.user);
+    return res.json({ user: adminUserView(v.user), ...inv });
+  }
   if (req.body?.sendInvite && providers.email) {
-    const base = APP_URL || `${req.protocol}://${req.get('host')}`;
     void sendEmailNow(
       v.user.email,
       `You've been invited to ${engine.state.settings.companyName}`,
-      `Hi ${v.user.name},\n\n${r.user.name} added you to ${engine.state.settings.companyName}.\nSign in at ${base}/#login with:\n\nEmail: ${v.user.email}\nTemporary password: ${tempPassword}\n\nYou'll choose your own password after signing in.`,
+      `Hi ${v.user.name},\n\n${r.user.name} added you to ${engine.state.settings.companyName}.\nSign in at ${baseUrl(req)}/#login with:\n\nEmail: ${v.user.email}\nTemporary password: ${tempPassword}\n\nYou'll choose your own password after signing in.`,
       engine.state.settings.companyName,
     ).catch((e) => console.error('[invite]', e));
   }
   res.json({ user: adminUserView(v.user), tempPassword: given ? undefined : tempPassword });
+});
+
+app.post('/api/admin/users/:id/invite', requireUser(), (req, res) => {
+  const r = req as Authed;
+  if (!can(r.user, 'team:manage')) return res.status(403).json({ error: 'Only owners and managers can send invitations.' });
+  const target = engine.state.users.find((u) => u.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (!target.active) return res.status(400).json({ error: 'Reactivate this user first.' });
+  if (target.role === 'OWNER' && r.user.role !== 'OWNER') return res.status(403).json({ error: 'Only an owner can do this for an owner.' });
+  if (!getCredential(target.id)) setPassword(target.id, target.email, `${generateTempPassword()}${generateTempPassword()}`, true);
+  res.json(issueInvite(req, r.user, target));
 });
 
 app.patch('/api/admin/users/:id', requireUser(), (req, res) => {

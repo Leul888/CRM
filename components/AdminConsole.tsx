@@ -11,6 +11,7 @@ import {
   Database,
   Download,
   KeyRound,
+  Link2,
   LogOut,
   Mail,
   MessageSquare,
@@ -67,8 +68,9 @@ type System = Awaited<ReturnType<typeof store.system>>;
 
 // ------------------------------------------------------------------ users
 type Draft = Partial<User> & { password?: string; sendInvite?: boolean };
+type InviteInfo = { name: string; email: string; link: string; emailed: boolean };
 
-const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean; onClose: () => void; onSaved: (temp?: { email: string; password: string }) => void }> = ({
+const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean; onClose: () => void; onSaved: (temp?: { email: string; password: string }, invite?: InviteInfo) => void }> = ({
   actor,
   user,
   emailEnabled,
@@ -80,7 +82,7 @@ const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean
       ? { ...user }
       : { name: '', email: '', phone: '', role: 'SALES_REP', active: true, qualifiedForRenovation: false, serviceCapabilities: store.services.map((x) => x.key), calendarColor: '#4B3AB3', sendInvite: emailEnabled },
   );
-  const [pwMode, setPwMode] = useState<'temp' | 'set'>('temp');
+  const [pwMode, setPwMode] = useState<'invite' | 'temp' | 'set'>('invite');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
@@ -99,10 +101,11 @@ const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean
         store.toast('User updated');
         onSaved();
       } else {
-        const payload = { ...d, password: pwMode === 'set' ? d.password : undefined };
+        const payload = { ...d, accessMode: pwMode, password: pwMode === 'set' ? d.password : undefined };
         const r = await store.createUser(payload);
         store.toast(`${d.name} added`);
-        onSaved(r.tempPassword ? { email: r.user.email, password: r.tempPassword } : undefined);
+        if (r.inviteLink) onSaved(undefined, { name: r.user.name, email: r.user.email, link: r.inviteLink, emailed: !!r.emailed });
+        else onSaved(r.tempPassword ? { email: r.user.email, password: r.tempPassword } : undefined);
       }
       onClose();
     } catch (e) {
@@ -149,18 +152,29 @@ const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean
         </div>
         {!user && (
           <div className="rounded-2xl border border-ink-200 p-4 sm:col-span-2">
-            <span className="label">Password</span>
-            <Tabs value={pwMode} onChange={(v) => setPwMode(v as 'temp' | 'set')} items={[{ value: 'temp', label: 'Generate temporary password' }, { value: 'set', label: 'Set a password' }]} />
+            <span className="label">How will they sign in?</span>
+            <Tabs value={pwMode} onChange={(v) => setPwMode(v as 'invite' | 'temp' | 'set')} items={[{ value: 'invite', label: 'Invite link' }, { value: 'temp', label: 'Temporary password' }, { value: 'set', label: 'Set a password' }]} />
+            {pwMode === 'invite' && (
+              <>
+                <p className="mt-3 text-xs text-ink-500">They get a one-time link (valid 7 days) where they choose their own password. Nobody else ever sees it.</p>
+                {emailEnabled ? (
+                  <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={d.sendInvite !== false} onChange={(e) => set('sendInvite', e.target.checked)} className="h-4 w-4 accent-brand-600" /> Email the link to them now</label>
+                ) : (
+                  <p className="mt-2 text-xs text-ink-500">Email isn't set up yet, so you'll get the link to copy and text or send them.</p>
+                )}
+              </>
+            )}
             {pwMode === 'set' && (
               <Field label="Initial password" hint="They'll be asked to change it on first sign-in." className="mt-3">
                 <Input type="text" value={d.password || ''} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" />
               </Field>
             )}
-            {emailEnabled ? (
-              <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={!!d.sendInvite} onChange={(e) => set('sendInvite', e.target.checked)} className="h-4 w-4 accent-brand-600" /> Email them an invitation with sign-in details</label>
-            ) : (
-              <p className="mt-3 text-xs text-ink-500">Email isn't configured, so share the temporary password with them directly. It's shown once after you save.</p>
-            )}
+            {pwMode === 'temp' &&
+              (emailEnabled ? (
+                <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={!!d.sendInvite} onChange={(e) => set('sendInvite', e.target.checked)} className="h-4 w-4 accent-brand-600" /> Email them the sign-in details</label>
+              ) : (
+                <p className="mt-3 text-xs text-ink-500">Share the temporary password with them directly. It's shown once after you save.</p>
+              ))}
           </div>
         )}
         {error && <p className="text-sm font-medium text-rose-600 sm:col-span-2">{error}</p>}
@@ -183,6 +197,20 @@ const TempPasswordModal: React.FC<{ email: string; password: string; onClose: ()
   </Modal>
 );
 
+const InviteModal: React.FC<InviteInfo & { onClose: () => void }> = ({ name, email, link, emailed, onClose }) => (
+  <Modal title="Invitation ready" description={emailed ? `We emailed ${name} a link to set their password. You can also copy it below.` : `Send this link to ${name} by text or email. It works once and expires in 7 days.`} onClose={onClose} footer={<Button onClick={onClose}>Done</Button>}>
+    <div className="rounded-2xl border border-brand-100 bg-brand-50/70 p-5">
+      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-600">Sign-in email</div>
+      <div className="font-medium text-ink-900">{email}</div>
+      <div className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-brand-600">Invite link</div>
+      <div className="mt-1 flex items-center gap-3">
+        <code className="min-w-0 flex-1 truncate rounded-lg bg-surface px-3 py-2 font-mono text-xs text-ink-800" data-testid="invite-link">{link}</code>
+        <Button size="sm" variant="primary" icon={<Copy size={14} />} onClick={() => copyToClipboard(`Hi ${name.split(' ')[0]}, here's your invite to set up your account: ${link}`, 'Invite link copied')}>Copy</Button>
+      </div>
+    </div>
+  </Modal>
+);
+
 const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, system }) => {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [q, setQ] = useState('');
@@ -190,6 +218,15 @@ const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, sys
   const [editing, setEditing] = useState<AdminUser | 'new' | null>(null);
   const [temp, setTemp] = useState<{ email: string; password: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState<AdminUser | null>(null);
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const reinvite = async (u: AdminUser) => {
+    try {
+      const r = await store.sendInvite(u.id, !!system?.providers.email);
+      setInvite({ name: u.name, email: u.email, link: r.inviteLink, emailed: r.emailed });
+    } catch (e) {
+      store.toast(e instanceof Error ? e.message : 'Failed', 'error');
+    }
+  };
   const manage = can(actor, 'team:manage');
 
   const load = useCallback(() => store.adminUsers().then(setUsers).catch(() => setUsers([])), []);
@@ -254,7 +291,7 @@ const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, sys
                 </div>
               </td>
               <td className="table-cell">
-                {!u.active ? <Badge value="INACTIVE" /> : u.mustChangePassword ? <Badge value="PENDING" tone="amber" label="Awaiting first sign-in" /> : <Badge value="ACTIVE" />}
+                {!u.active ? <Badge value="INACTIVE" /> : u.mustChangePassword ? <Badge value="PENDING" tone="amber" label="Invited" /> : <Badge value="ACTIVE" />}
                 {u.activeSessions > 0 && <div className="mt-1 text-[11px] text-ink-400">{u.activeSessions} active session{u.activeSessions > 1 ? 's' : ''}</div>}
               </td>
               <td className="table-cell whitespace-nowrap text-xs text-ink-500">{u.lastLoginAt ? relative(u.lastLoginAt) : 'Never'}</td>
@@ -264,6 +301,9 @@ const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, sys
                     <button title="Edit" aria-label="Edit" className="rounded-full p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-900" onClick={() => setEditing(u)}><Pencil size={15} /></button>
                     {u.id !== actor.id && (
                       <>
+                        {u.active && u.mustChangePassword && (
+                          <button title="Send invite link" aria-label="Send invite link" className="rounded-full p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-900" onClick={() => void reinvite(u)}><Link2 size={15} /></button>
+                        )}
                         <button title="Reset password" aria-label="Reset password" className="rounded-full p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-900" onClick={() => setConfirmReset(u)}><KeyRound size={15} /></button>
                         {u.activeSessions > 0 && (
                           <button title="Sign out everywhere" aria-label="Sign out everywhere" className="rounded-full p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-900" onClick={async () => { await store.revokeSessions(u.id); store.toast(`${u.name} signed out`); void load(); }}><LogOut size={15} /></button>
@@ -286,9 +326,10 @@ const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, sys
           user={editing === 'new' ? undefined : editing}
           emailEnabled={!!system?.providers.email}
           onClose={() => setEditing(null)}
-          onSaved={(t) => {
+          onSaved={(t, inv) => {
             void load();
             if (t) setTemp(t);
+            if (inv) setInvite(inv);
           }}
         />
       )}
@@ -310,6 +351,7 @@ const UsersTab: React.FC<{ actor: User; system: System | null }> = ({ actor, sys
         />
       )}
       {temp && <TempPasswordModal {...temp} onClose={() => setTemp(null)} />}
+      {invite && <InviteModal {...invite} onClose={() => setInvite(null)} />}
     </div>
   );
 };
