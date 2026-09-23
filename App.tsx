@@ -21,7 +21,7 @@ import {
 import type { User } from './types';
 import { store } from './store';
 import { AppPage, canAccessPage, isAdminRole, scopeEstimates, scopeLeads } from './services/permissions';
-import { Avatar, Logo, Toaster, useStore } from './components/SharedComponents';
+import { Avatar, Logo, ThemeToggle, Toaster, useStore } from './components/SharedComponents';
 import Landing from './pages/Landing';
 import { ForcePasswordChange, ForgotPassword, Login, PublicBooking, PublicEstimateApproval, ResetPassword, Setup } from './pages/PublicPages';
 import Dashboard from './components/Dashboard';
@@ -82,12 +82,12 @@ const NotificationsMenu: React.FC = () => {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen(!open)} className="relative flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600 transition hover:text-ink-950" aria-label="Notifications">
+      <button onClick={() => setOpen(!open)} className="relative flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600 transition hover:text-ink-950" aria-label="Notifications">
         <Bell size={17} />
         {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">{unread}</span>}
       </button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-[360px] max-w-[calc(100vw-2rem)] animate-fade-up overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-pop">
+        <div className="absolute right-0 z-50 mt-2 w-[360px] max-w-[calc(100vw-2rem)] animate-fade-up overflow-hidden rounded-2xl border border-ink-200 bg-surface shadow-pop">
           <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
             <span className="font-display font-semibold">Notifications</span>
             {unread > 0 && (
@@ -160,10 +160,10 @@ const GlobalSearch: React.FC = () => {
         onFocus={() => setFocus(true)}
         onBlur={() => setTimeout(() => setFocus(false), 150)}
         placeholder="Search leads, estimates, invoices…"
-        className="field !rounded-full !bg-ink-50 pl-10 hover:!bg-white focus:!bg-white"
+        className="field !rounded-full !bg-ink-50 pl-10 hover:!bg-surface focus:!bg-surface"
       />
       {focus && results.length > 0 && (
-        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-pop">
+        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-surface shadow-pop">
           {results.map((r) => (
             <button
               key={r.key}
@@ -277,11 +277,11 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
 
   return (
     <div className="min-h-screen bg-ink-50/60">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] border-r border-ink-200/70 bg-white px-4 py-6 lg:block">{sidebar}</aside>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] border-r border-ink-200/70 bg-surface px-4 py-6 lg:block">{sidebar}</aside>
       {menuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-ink-950/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-fade-up bg-white px-4 py-6 shadow-pop">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-fade-up bg-surface px-4 py-6 shadow-pop">
             <button onClick={() => setMenuOpen(false)} className="absolute right-3 top-5 flex h-9 w-9 items-center justify-center rounded-full hover:bg-ink-100" aria-label="Close menu"><X size={18} /></button>
             {sidebar}
           </aside>
@@ -289,7 +289,7 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
       )}
 
       <div className="lg:pl-[264px]">
-        <header className="no-print sticky top-0 z-20 border-b border-ink-200/70 bg-white/85 backdrop-blur-xl">
+        <header className="no-print sticky top-0 z-20 border-b border-ink-200/70 bg-surface/85 backdrop-blur-xl">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button onClick={() => setMenuOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 lg:hidden" aria-label="Open menu"><Menu size={18} /></button>
             <GlobalSearch />
@@ -299,8 +299,9 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
                   <ShieldCheck size={14} /> Admin console
                 </a>
               )}
+              <ThemeToggle />
               <NotificationsMenu />
-              <a href="#account" className="flex items-center gap-2.5 rounded-full border border-ink-200 bg-white py-1 pl-1 pr-3 hover:border-ink-300" title="My account">
+              <a href="#account" className="flex items-center gap-2.5 rounded-full border border-ink-200 bg-surface py-1 pl-1 pr-3 hover:border-ink-300" title="My account">
                 <Avatar name={user.name} color={user.calendarColor} size="sm" />
                 <span className="hidden leading-tight sm:block">
                   <span className="block text-xs font-semibold text-ink-900">{user.name}</span>
@@ -341,7 +342,7 @@ const BillingBanner: React.FC<{ admin: boolean }> = ({ admin }) => {
 };
 
 const Splash: React.FC = () => (
-  <div className="flex min-h-screen items-center justify-center bg-white">
+  <div className="flex min-h-screen items-center justify-center bg-surface">
     <div className="flex flex-col items-center gap-4">
       <Logo compact />
       <div className="h-1 w-24 overflow-hidden rounded-full bg-ink-100"><div className="h-full w-1/2 animate-pulse rounded-full bg-brand-500" /></div>

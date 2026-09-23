@@ -70,6 +70,7 @@ Copy `.env.example` to `.env` (or set real environment variables). Key settings:
 | `SMTP_*` | Real email (Resend, Postmark, SendGrid, Mailgun, Google Workspace, any SMTP) |
 | `TWILIO_*` | Real SMS reminders |
 | `SEED_DEMO` | Sample data for evaluation only. Keep `false` for a real company |
+| `COMPANY_NAME` / `BRAND_COLOR` | Name (and optional hex color) for a fresh workspace. With `SEED_DEMO=true` they are re-applied on every restart, so a free demo always shows your chosen name |
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_ID` / `STRIPE_WEBHOOK_SECRET` | Subscription billing for this client (your Stripe account). Leave empty to turn billing off |
 | `TRIAL_DAYS` / `BILLING_GRACE_DAYS` / `BILLING_OVERRIDE` | Trial length, grace period after a failed payment, `active` to comp a client |
 
@@ -108,6 +109,9 @@ server/delivery.ts                         SMTP + Twilio delivery with Outbox st
 SQLite comfortably serves a single company with dozens of concurrent users. If you later outgrow one server, `server/db.ts` is the only persistence layer to swap (for example to Postgres).
 
 ## Customizing per client (no code)
+
+- **Company name**: Admin console → **Rename company** (top right). Updates the logo text, login page, website, documents and emails instantly.
+- **Night mode**: everyone can switch with the moon/sun button in the header (remembered per browser; follows the device setting by default).
 
 - **Services**: Admin → Services. Add, rename, reorder or retire services. *Specialist* services only go to specialist-qualified estimators.
 - **Brand**: Admin → Branding & website. Upload a logo, pick a brand color (applies across app, login and website) and edit the homepage headline, booking text and FAQ.

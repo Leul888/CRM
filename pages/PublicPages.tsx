@@ -1,21 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, FileSignature, KeyRound, Lock, Printer, ShieldCheck, XCircle } from 'lucide-react';
 import { store, type ApprovalView } from '../store';
-import { Badge, Button, Field, Input, Logo, Textarea, useStore } from '../components/SharedComponents';
+import { Badge, Button, Field, Input, Logo, Textarea, ThemeToggle, useStore } from '../components/SharedComponents';
 import BookingForm from '../components/BookingForm';
 import { date, dateTime, humanize, money } from '../services/format';
 import { serviceLabel } from '../services/catalog';
 
 const PublicShell: React.FC<{ children: React.ReactNode; wide?: boolean }> = ({ children, wide }) => (
   <div className="min-h-screen bg-ink-50/60">
-    <header className="no-print border-b border-ink-100 bg-white/80 backdrop-blur">
+    <header className="no-print border-b border-ink-100 bg-surface/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <a href="#home">
           <Logo />
         </a>
-        <a href="#home" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-600 hover:text-ink-950">
-          <ArrowLeft size={15} /> Back to site
-        </a>
+        <div className="flex items-center gap-3">
+          <a href="#home" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink-600 hover:text-ink-950">
+            <ArrowLeft size={15} /> Back to site
+          </a>
+          <ThemeToggle />
+        </div>
       </div>
     </header>
     <main className={`mx-auto px-5 py-12 ${wide ? 'max-w-6xl' : 'max-w-3xl'}`}>{children}</main>
@@ -34,7 +37,7 @@ export const PublicBooking: React.FC = () => {
           <p className="mt-4 text-lg text-ink-600">
             Choose a time and tell us about the project. {s.config?.companyName || 'We'} will match you with the right estimator automatically.
           </p>
-          <div className="mt-8 rounded-3xl border border-ink-200 bg-white p-6">
+          <div className="mt-8 rounded-3xl border border-ink-200 bg-surface p-6">
             <div className="flex items-center gap-3 text-sm font-semibold text-ink-900">
               <ShieldCheck size={18} className="text-brand-600" /> What happens next
             </div>
@@ -127,14 +130,14 @@ export const PublicEstimateApproval: React.FC<{ token: string }> = ({ token }) =
           <div className="glow-violet absolute inset-0" />
           <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-start">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-200">Estimate {estimate.number}</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">Estimate {estimate.number}</div>
               <h1 className="mt-2 text-3xl font-bold">{serviceLabel(estimate.serviceType)}</h1>
-              <p className="mt-1 text-brand-100">Prepared for {lead.name} · {lead.address}</p>
+              <p className="mt-1 text-white/80">Prepared for {lead.name} · {lead.address}</p>
             </div>
             <div className="text-left sm:text-right">
-              <div className="text-xs uppercase tracking-[0.18em] text-brand-200">Total</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-white/70">Total</div>
               <div className="font-display text-4xl font-bold">{money(estimate.total)}</div>
-              <div className="mt-1 text-xs text-brand-200">Valid until {date(estimate.expirationDate)}</div>
+              <div className="mt-1 text-xs text-white/70">Valid until {date(estimate.expirationDate)}</div>
             </div>
           </div>
         </div>
@@ -201,7 +204,7 @@ export const PublicEstimateApproval: React.FC<{ token: string }> = ({ token }) =
                 <Field label="Type your full name">
                   <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={lead.name} autoComplete="name" />
                 </Field>
-                <div className="h-[46px] min-w-[180px] rounded-xl border border-dashed border-ink-300 bg-white px-4 pt-1 font-[cursive] text-2xl text-ink-800">{name}</div>
+                <div className="h-[46px] min-w-[180px] rounded-xl border border-dashed border-ink-300 bg-surface px-4 pt-1 font-[cursive] text-2xl text-ink-800">{name}</div>
               </div>
               <label className="mt-4 flex items-start gap-2.5 text-sm text-ink-600">
                 <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
@@ -246,9 +249,9 @@ const AuthShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="grid-bg absolute inset-0 opacity-40 [mask-image:radial-gradient(ellipse_at_top,black_20%,transparent_70%)]" />
         <a href="#home" className="relative"><Logo dark /></a>
         <div className="relative">
-          <div className="eyebrow text-brand-200">{company} workspace</div>
-          <h1 className="mt-4 text-5xl font-bold leading-[1.05]">Every lead, estimate and job, <span className="text-brand-200">in one place.</span></h1>
-          <p className="mt-5 max-w-md text-lg text-brand-100">Admins run the company from the admin console. Everyone else gets a workspace built for their role.</p>
+          <div className="eyebrow !text-white/70">{company} workspace</div>
+          <h1 className="mt-4 text-5xl font-bold leading-[1.05]">Every lead, estimate and job, <span className="text-white/70">in one place.</span></h1>
+          <p className="mt-5 max-w-md text-lg text-white/80">Admins run the company from the admin console. Everyone else gets a workspace built for their role.</p>
         </div>
         <div className="relative grid grid-cols-3 gap-3 text-sm">
           {[
@@ -258,12 +261,13 @@ const AuthShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           ].map(([t, d]) => (
             <div key={t} className="rounded-2xl border border-white/20 bg-white/10 p-4">
               <div className="font-semibold">{t}</div>
-              <div className="mt-1 text-xs text-brand-200">{d}</div>
+              <div className="mt-1 text-xs text-white/70">{d}</div>
             </div>
           ))}
         </div>
       </div>
-      <div className="flex items-center justify-center px-5 py-12">
+      <div className="relative flex items-center justify-center px-5 py-12">
+        <ThemeToggle className="absolute right-5 top-5" />
         <div className="w-full max-w-md">
           <a href="#home" className="lg:hidden"><Logo /></a>
           {children}

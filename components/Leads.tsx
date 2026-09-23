@@ -202,7 +202,7 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
           <ol className="mt-4 space-y-4 border-l border-ink-200 pl-5">
             {(lead.activity || []).map((a) => (
               <li key={a.id} className="relative">
-                <span className="absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full bg-white text-brand-600 ring-1 ring-ink-200">{activityIcon(a.kind)}</span>
+                <span className="absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full bg-surface text-brand-600 ring-1 ring-ink-200">{activityIcon(a.kind)}</span>
                 <div className="text-sm text-ink-800">{a.text}</div>
                 <div className="mt-0.5 text-xs text-ink-400">{relative(a.at)}{a.userId ? ` · ${s.userName(a.userId)}` : ''}</div>
               </li>
@@ -299,8 +299,8 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
           <Select value={source} onChange={(e) => setSource(e.target.value)} placeholder="All sources" options={SOURCES.map((x) => ({ value: x, label: humanize(x) }))} />
         </div>
         <div className="inline-flex rounded-full bg-ink-100 p-1">
-          <button onClick={() => setView('table')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'table' ? 'bg-white shadow-sm' : 'text-ink-500'}`} aria-label="Table view"><List size={16} /></button>
-          <button onClick={() => setView('board')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'board' ? 'bg-white shadow-sm' : 'text-ink-500'}`} aria-label="Board view"><KanbanSquare size={16} /></button>
+          <button onClick={() => setView('table')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'table' ? 'bg-surface shadow-sm' : 'text-ink-500'}`} aria-label="Table view"><List size={16} /></button>
+          <button onClick={() => setView('board')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'board' ? 'bg-surface shadow-sm' : 'text-ink-500'}`} aria-label="Board view"><KanbanSquare size={16} /></button>
         </div>
       </div>
 
@@ -360,7 +360,7 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
                 >
                   <div className="flex items-center justify-between px-2 py-2">
                     <span className="text-xs font-bold uppercase tracking-[0.12em] text-ink-600">{humanize(col)}</span>
-                    <span className="rounded-full bg-white px-2 text-xs font-semibold text-ink-600">{items.length}</span>
+                    <span className="rounded-full bg-surface px-2 text-xs font-semibold text-ink-600">{items.length}</span>
                   </div>
                   <div className="min-h-[80px] space-y-2">
                     {items.map((l) => (
@@ -370,7 +370,7 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
                         onDragStart={() => setDragId(l.id)}
                         onDragEnd={() => setDragId(null)}
                         onClick={() => open(l.id)}
-                        className="cursor-pointer rounded-xl border border-ink-200/80 bg-white p-3.5 shadow-sm transition hover:border-brand-300 hover:shadow-card"
+                        className="cursor-pointer rounded-xl border border-ink-200/80 bg-surface p-3.5 shadow-sm transition hover:border-brand-300 hover:shadow-card"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-ink-900">{l.name}</span>

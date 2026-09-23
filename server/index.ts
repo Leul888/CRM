@@ -48,6 +48,9 @@ const hasWorkspace = () => engine.state.users?.length > 0;
 
 const seedDemo = () => {
   engine.state = buildSeedState();
+  // Optional branding for demos: survives restarts because it comes from the environment.
+  if (process.env.COMPANY_NAME) engine.state.settings.companyName = process.env.COMPANY_NAME.trim().slice(0, 120);
+  if (/^#[0-9a-f]{6}$/i.test(process.env.BRAND_COLOR || '')) engine.state.settings.brandColor = process.env.BRAND_COLOR!.toLowerCase();
   saveState(engine.state);
   for (const u of engine.state.users) setPassword(u.id, u.email, DEMO_PASSWORD, false);
   console.log(`[boot] demo workspace seeded — every demo user's password is "${DEMO_PASSWORD}"`);
@@ -70,6 +73,7 @@ if (!hasWorkspace()) {
   else if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     const admin = newAdmin(process.env.ADMIN_NAME || 'Administrator', process.env.ADMIN_EMAIL);
     engine.state = buildEmptyState(admin, process.env.COMPANY_NAME || 'Company X');
+    if (/^#[0-9a-f]{6}$/i.test(process.env.BRAND_COLOR || '')) engine.state.settings.brandColor = process.env.BRAND_COLOR!.toLowerCase();
     saveState(engine.state);
     setPassword(admin.id, admin.email, process.env.ADMIN_PASSWORD, true);
     console.log(`[boot] workspace created for ${admin.email} (password change required on first sign-in)`);

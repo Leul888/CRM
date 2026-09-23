@@ -141,7 +141,7 @@ const UserModal: React.FC<{ actor: User; user?: AdminUser; emailEnabled: boolean
           <span className="label">Service capabilities</span>
           <div className="flex flex-wrap gap-2">
             {store.services.map(({ key: sv, label }) => (
-              <button key={sv} type="button" onClick={() => toggleService(sv)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${(d.serviceCapabilities || []).includes(sv) ? 'bg-brand-600 text-white ring-brand-600' : 'bg-white text-ink-600 ring-ink-200 hover:ring-brand-300'}`}>
+              <button key={sv} type="button" onClick={() => toggleService(sv)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${(d.serviceCapabilities || []).includes(sv) ? 'bg-brand-600 text-white ring-brand-600' : 'bg-surface text-ink-600 ring-ink-200 hover:ring-brand-300'}`}>
                 {label}
               </button>
             ))}
@@ -549,6 +549,43 @@ const OverviewTab: React.FC<{ actor: User; system: System | null; go: (t: string
   );
 };
 
+// ------------------------------------------------------------------ rename
+const RenameCompany: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const s = useStore();
+  const [name, setName] = useState(s.state.settings.companyName);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const clean = name.trim();
+    if (!clean) return store.toast('Enter a company name.', 'error');
+    setBusy(true);
+    try {
+      await s.saveSettings({ ...s.state.settings, companyName: clean });
+      await store.refreshConfig();
+      store.toast(`Company renamed to ${clean}`);
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Rename company"
+      description="Updates the logo text, login page, website, estimates, invoices and emails right away."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={busy || !name.trim()}>{busy ? 'Saving…' : 'Save name'}</Button>
+        </>
+      }
+    >
+      <Field label="Company name">
+        <Input value={name} maxLength={120} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void save()} placeholder="e.g. Summit Home Builders" />
+      </Field>
+    </Modal>
+  );
+};
+
 // ------------------------------------------------------------------ console
 const TABS = [
   { value: 'overview', label: 'Overview', icon: Activity },
@@ -570,6 +607,7 @@ const AdminConsole: React.FC<{ currentUser: User; tab?: string }> = ({ currentUs
     store.system().then(setSystem).catch(() => undefined);
   }, []);
   const go = (t: string) => (window.location.hash = `admin/${t}`);
+  const [renaming, setRenaming] = useState(false);
 
   return (
     <div>
@@ -577,14 +615,20 @@ const AdminConsole: React.FC<{ currentUser: User; tab?: string }> = ({ currentUs
         eyebrow="Admin console"
         title={s.state.settings.companyName}
         description="Manage who can sign in, what they can see, and how the company is set up."
-        actions={can(currentUser, 'team:manage') ? <Button icon={<UserPlus size={16} />} onClick={() => go('users')}>Add or manage users</Button> : undefined}
+        actions={
+          <>
+            {can(currentUser, 'settings:manage') && <Button variant="outline" icon={<Pencil size={15} />} onClick={() => setRenaming(true)}>Rename company</Button>}
+            {can(currentUser, 'team:manage') && <Button icon={<UserPlus size={16} />} onClick={() => go('users')}>Add or manage users</Button>}
+          </>
+        }
       />
+      {renaming && <RenameCompany onClose={() => setRenaming(false)} />}
       <div className="-mx-1 mb-6 overflow-x-auto px-1">
         <div className="inline-flex gap-1 rounded-full bg-ink-100 p-1">
           {TABS.map((t) => {
             const Icon = t.icon;
             return (
-              <button key={t.value} onClick={() => go(t.value)} className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${active === t.value ? 'bg-white text-ink-950 shadow-sm' : 'text-ink-500 hover:text-ink-900'}`}>
+              <button key={t.value} onClick={() => go(t.value)} className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition ${active === t.value ? 'bg-surface text-ink-950 shadow-sm' : 'text-ink-500 hover:text-ink-900'}`}>
                 <Icon size={15} /> {t.label}
               </button>
             );

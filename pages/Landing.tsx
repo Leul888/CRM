@@ -27,7 +27,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { Button, Logo, useStore } from '../components/SharedComponents';
+import { Button, Logo, ThemeToggle, useStore } from '../components/SharedComponents';
 import BookingForm from '../components/BookingForm';
 import { moneyShort } from '../services/format';
 import { serviceLabel, siteContent } from '../services/catalog';
@@ -89,8 +89,8 @@ const HeroMock: React.FC = () => {
   return (
     <div className="relative">
       <div className="glow-violet absolute -inset-10 -z-10 blur-2xl" />
-      <div className="rounded-[28px] border border-white/60 bg-white/80 p-3 shadow-pop backdrop-blur">
-        <div className="rounded-[22px] border border-ink-100 bg-white p-5">
+      <div className="rounded-[28px] border border-ink-100 bg-surface/80 p-3 shadow-pop backdrop-blur">
+        <div className="rounded-[22px] border border-ink-100 bg-surface p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Estimate EST-2001</div>
@@ -119,7 +119,7 @@ const HeroMock: React.FC = () => {
           </div>
         </div>
       </div>
-      <div className="absolute -bottom-28 -left-8 hidden w-60 rounded-2xl border border-ink-100 bg-white p-4 shadow-pop sm:block">
+      <div className="absolute -bottom-28 -left-8 hidden w-60 rounded-2xl border border-ink-100 bg-surface p-4 shadow-pop sm:block">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400">Next visits</div>
         <div className="mt-3 space-y-2.5">
           {upcoming.length === 0 && <div className="text-xs text-ink-400">Openings this week</div>}
@@ -132,7 +132,7 @@ const HeroMock: React.FC = () => {
           ))}
         </div>
       </div>
-      <div className="absolute -right-4 -top-6 hidden items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-ink-900 ring-1 ring-brand-100 shadow-pop sm:flex">
+      <div className="absolute -right-4 -top-6 hidden items-center gap-2 rounded-full bg-surface px-4 py-2 text-xs font-semibold text-ink-900 ring-1 ring-brand-100 shadow-pop sm:flex">
         <BadgeCheck size={14} className="text-emerald-500" /> Estimator auto-assigned
       </div>
     </div>
@@ -158,9 +158,9 @@ const Landing: React.FC = () => {
   }, [cfg]);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-surface">
       {/* NAV */}
-      <header className="sticky top-0 z-40 border-b border-ink-100/80 bg-white/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-ink-100/80 bg-surface/80 backdrop-blur-xl">
         <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 lg:px-8">
           <a href="#home" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
             <Logo />
@@ -173,6 +173,7 @@ const Landing: React.FC = () => {
             ))}
           </nav>
           <div className="hidden items-center gap-2 md:flex">
+            <ThemeToggle />
             <a href="#login" className="rounded-full px-4 py-2 text-sm font-semibold text-ink-700 hover:text-ink-950">
               Team sign in
             </a>
@@ -180,12 +181,15 @@ const Landing: React.FC = () => {
               Book a free estimate <ArrowRight size={16} />
             </Button>
           </div>
+          <div className="flex items-center gap-2 md:hidden">
+          <ThemeToggle />
           <button className="flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 md:hidden" onClick={() => setMobileNav(!mobileNav)} aria-label="Menu">
             {mobileNav ? <X size={18} /> : <Menu size={18} />}
           </button>
+          </div>
         </div>
         {mobileNav && (
-          <div className="border-t border-ink-100 bg-white px-5 py-4 md:hidden">
+          <div className="border-t border-ink-100 bg-surface px-5 py-4 md:hidden">
             {NAV.map((n) => (
               <button key={n.id} onClick={() => { setMobileNav(false); scrollTo(n.id); }} className="block w-full rounded-xl px-3 py-3 text-left text-sm font-medium text-ink-700 hover:bg-ink-50">
                 {n.label}
@@ -271,7 +275,7 @@ const Landing: React.FC = () => {
             { v: live.avg ? moneyShort(live.avg) : '—', l: 'average approved project', s: 'itemized, e-signed' },
             { v: '48h', l: 'target from visit to estimate', s: 'sent straight to your inbox' },
           ].map((x) => (
-            <div key={x.l} className="bg-white p-8">
+            <div key={x.l} className="bg-surface p-8">
               <div className="font-display text-5xl font-bold tracking-tight text-ink-950">{x.v}</div>
               <div className="mt-3 text-[15px] font-medium text-ink-800">{x.l}</div>
               <div className="mt-1 text-sm text-ink-500">{x.s}</div>
@@ -285,9 +289,9 @@ const Landing: React.FC = () => {
         <div className="glow-violet absolute inset-x-0 top-0 h-[500px]" />
         <div className="relative mx-auto max-w-7xl px-5 lg:px-8">
           <div className="max-w-2xl">
-            <div className="eyebrow text-brand-200">From first call to final walkthrough</div>
+            <div className="eyebrow !text-white/70">From first call to final walkthrough</div>
             <h2 className="mt-4 text-4xl font-bold leading-[1.08] sm:text-5xl">Five steps. No black box.</h2>
-            <p className="mt-5 text-lg text-brand-100">Every project moves through the same visible stages. You always know what's next and who owns it.</p>
+            <p className="mt-5 text-lg text-white/80">Every project moves through the same visible stages. You always know what's next and who owns it.</p>
           </div>
           <div className="mt-14 grid gap-4 md:grid-cols-5">
             {STAGES.map((st) => {
@@ -295,14 +299,14 @@ const Landing: React.FC = () => {
               return (
                 <div
                   key={st.n}
-                  className={`relative rounded-3xl border p-6 transition ${st.highlight ? 'border-white bg-white text-ink-950 shadow-pop' : 'border-white/20 bg-white/10 hover:border-white/40'}`}
+                  className={`relative rounded-3xl border p-6 transition ${st.highlight ? 'border-white bg-surface text-ink-950 shadow-pop' : 'border-white/20 bg-white/10 hover:border-white/40'}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`font-display text-sm font-bold ${st.highlight ? 'text-brand-600' : 'text-brand-200'}`}>{st.n}</span>
+                    <span className={`font-display text-sm font-bold ${st.highlight ? 'text-brand-600' : 'text-white/70'}`}>{st.n}</span>
                     <Icon size={20} className={st.highlight ? 'text-brand-600' : 'text-white/70'} />
                   </div>
                   <div className="mt-10 font-display text-xl font-bold">{st.title}</div>
-                  <p className={`mt-2 text-sm leading-relaxed ${st.highlight ? 'text-ink-600' : 'text-brand-100'}`}>{st.copy}</p>
+                  <p className={`mt-2 text-sm leading-relaxed ${st.highlight ? 'text-ink-600' : 'text-white/80'}`}>{st.copy}</p>
                   {st.highlight && <span className="absolute -top-3 left-6 rounded-full bg-amber-300 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink-900">Where you decide</span>}
                 </div>
               );
@@ -326,7 +330,7 @@ const Landing: React.FC = () => {
           {s.services.map((sv) => {
             const Icon = iconFor(sv.label);
             return (
-              <div key={sv.key} className="group rounded-3xl border border-ink-200 bg-white p-7 transition hover:-translate-y-1 hover:border-brand-300 hover:shadow-glow">
+              <div key={sv.key} className="group rounded-3xl border border-ink-200 bg-surface p-7 transition hover:-translate-y-1 hover:border-brand-300 hover:shadow-glow">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 transition group-hover:bg-brand-600 group-hover:text-white">
                   <Icon size={22} />
                 </div>
@@ -335,10 +339,10 @@ const Landing: React.FC = () => {
               </div>
             );
           })}
-          <div className="flex flex-col justify-between rounded-3xl bg-gradient-to-br from-brand-600 to-brand-800 p-7 text-white shadow-glow">
+          <div className="flex flex-col justify-between rounded-3xl bg-gradient-to-br from-brand-600 to-brand-deep p-7 text-white shadow-glow">
             <div>
               <h3 className="text-xl font-bold">Not sure where to start?</h3>
-              <p className="mt-2 text-[15px] leading-relaxed text-brand-100">Book a visit and we'll help you prioritize what adds the most value first.</p>
+              <p className="mt-2 text-[15px] leading-relaxed text-white/80">Book a visit and we'll help you prioritize what adds the most value first.</p>
             </div>
             <Button variant="light" className="mt-6 self-start" onClick={() => scrollTo('cta-form')}>
               Talk to an estimator <ArrowRight size={16} />
@@ -355,7 +359,7 @@ const Landing: React.FC = () => {
             <h2 className="mt-4 text-4xl font-bold leading-[1.08] text-ink-950 sm:text-5xl">A bid is 5% of the job. The system is the other 95%.</h2>
           </div>
           <div className="mt-14 grid gap-5 lg:grid-cols-[0.8fr,1.2fr]">
-            <div className="rounded-3xl border border-ink-200 bg-white p-8">
+            <div className="rounded-3xl border border-ink-200 bg-surface p-8">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold uppercase tracking-[0.14em] text-ink-400">Typical contractor</span>
                 <span className="font-display text-3xl font-bold text-ink-300">5%</span>
@@ -371,7 +375,7 @@ const Landing: React.FC = () => {
             </div>
             <div className="surface-violet rounded-3xl p-8 text-white shadow-pop">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold uppercase tracking-[0.14em] text-brand-200">{settings.companyName}</span>
+                <span className="text-sm font-semibold uppercase tracking-[0.14em] text-white/70">{settings.companyName}</span>
                 <span className="font-display text-3xl font-bold">95%</span>
               </div>
               <div className="mt-8 grid gap-x-8 gap-y-4 sm:grid-cols-2">
@@ -389,7 +393,7 @@ const Landing: React.FC = () => {
                     <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20"><Check size={13} /></span>
                     <div>
                       <div className="text-[15px] font-semibold">{t}</div>
-                      <div className="text-sm text-brand-200">{d}</div>
+                      <div className="text-sm text-white/70">{d}</div>
                     </div>
                   </div>
                 ))}
@@ -419,7 +423,7 @@ const Landing: React.FC = () => {
             ].map((x) => {
               const Icon = x.icon;
               return (
-                <div key={x.t} className="rounded-3xl border border-ink-200 bg-white p-6">
+                <div key={x.t} className="rounded-3xl border border-ink-200 bg-surface p-6">
                   <Icon size={22} className="text-brand-600" />
                   <div className="mt-5 font-display text-lg font-bold text-ink-950">{x.t}</div>
                   <p className="mt-1.5 text-sm leading-relaxed text-ink-600">{x.d}</p>
@@ -450,9 +454,9 @@ const Landing: React.FC = () => {
         <div className="grid-bg absolute inset-0 opacity-30 [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_70%)]" />
         <div className="relative mx-auto grid max-w-7xl gap-14 px-5 lg:grid-cols-[0.9fr,1.1fr] lg:px-8">
           <div className="lg:pt-6">
-            <div className="eyebrow text-brand-200">Free on-site estimate</div>
+            <div className="eyebrow !text-white/70">Free on-site estimate</div>
             <h2 className="mt-4 text-4xl font-bold leading-[1.05] sm:text-6xl">{site.ctaTitle}</h2>
-            <p className="mt-6 max-w-md text-lg text-brand-100">{site.ctaSubtitle}</p>
+            <p className="mt-6 max-w-md text-lg text-white/80">{site.ctaSubtitle}</p>
             <div className="mt-10 space-y-5">
               {[
                 ['45 minutes', 'On-site, at a time that suits you.'],
@@ -463,7 +467,7 @@ const Landing: React.FC = () => {
                   <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20"><Check size={15} /></span>
                   <div>
                     <div className="font-display text-lg font-semibold">{t}</div>
-                    <div className="text-brand-200">{d}</div>
+                    <div className="text-white/70">{d}</div>
                   </div>
                 </div>
               ))}
@@ -474,7 +478,7 @@ const Landing: React.FC = () => {
       </section>
 
       {/* FOOTER */}
-      <footer className="border-t border-ink-100 bg-white">
+      <footer className="border-t border-ink-100 bg-surface">
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 md:grid-cols-4 lg:px-8">
           <div className="md:col-span-2">
             <Logo />
