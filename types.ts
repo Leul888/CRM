@@ -252,7 +252,9 @@ export interface Notification {
 
 export interface OutboundMessage {
   id: string;
-  channel: 'EMAIL' | 'SMS' | 'CALENDAR' | 'INTERNAL';
+  channel: 'EMAIL' | 'SMS' | 'CALENDAR' | 'INTERNAL' | 'PUSH';
+  /** Push only: link opened when the notification is tapped. */
+  link?: string;
   to: string;
   subject?: string;
   body: string;
@@ -266,6 +268,8 @@ export interface CompanySettings {
   ownerName: string;
   supportEmail: string;
   supportPhone: string;
+  /** Private ntfy topic: the owner's phone gets a push notification for every website inquiry. Admin-only. */
+  ntfyTopic?: string;
   address?: string;
   defaultTaxRate?: number;
   estimateValidityDays?: number;

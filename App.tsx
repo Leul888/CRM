@@ -3,7 +3,6 @@ import {
   Bell,
   CalendarDays,
   ClipboardList,
-  ExternalLink,
   FileSignature,
   Grid2x2,
   LogOut,
@@ -23,7 +22,7 @@ import { store } from './store';
 import { AppPage, canAccessPage, isAdminRole, scopeEstimates, scopeLeads } from './services/permissions';
 import { Avatar, Logo, ThemeToggle, Toaster, useStore } from './components/SharedComponents';
 import Landing from './pages/Landing';
-import { ForcePasswordChange, ForgotPassword, Login, PublicBooking, PublicEstimateApproval, ResetPassword, Setup } from './pages/PublicPages';
+import { AcceptInvite, ForcePasswordChange, ForgotPassword, Login, PublicBooking, PublicEstimateApproval, ResetPassword, Setup } from './pages/PublicPages';
 import Dashboard from './components/Dashboard';
 import Leads from './components/Leads';
 import Appointments from './components/Appointments';
@@ -251,15 +250,6 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
           );
         })}
       </nav>
-      {admin && (
-        <div className="mt-4 rounded-2xl border border-brand-100 bg-brand-50/60 p-4">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-600">Public links</div>
-          <div className="mt-2.5 space-y-1.5 text-sm">
-            <a href="#home" target="_blank" rel="noreferrer" className="flex items-center justify-between font-medium text-ink-700 hover:text-brand-700">Website <ExternalLink size={13} className="text-brand-400" /></a>
-            <a href="#book" target="_blank" rel="noreferrer" className="flex items-center justify-between font-medium text-ink-700 hover:text-brand-700">Booking page <ExternalLink size={13} className="text-brand-400" /></a>
-          </div>
-        </div>
-      )}
       <div className="mt-3 flex items-center gap-2 rounded-2xl border border-ink-200 p-2">
         <a href="#account" className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-ink-50 ${page === 'account' ? 'bg-brand-50' : ''}`}>
           <Avatar name={user.name} color={user.calendarColor} size="sm" />
@@ -401,6 +391,7 @@ const App: React.FC = () => {
   else if (head === 'book') content = <PublicBooking />;
   else if (head === 'approve' && param) content = <PublicEstimateApproval token={param} />;
   else if (head === 'reset' && param) content = <ResetPassword token={param} />;
+  else if (head === 'invite' && param) content = <AcceptInvite token={param} />;
   else if (s.phase === 'booting') content = <Splash />;
   else if (s.config?.setupRequired) content = <Setup />;
   else if (head === 'forgot') content = s.isAuthenticated ? <Redirect to={homeFor(s.currentUser)} /> : <ForgotPassword />;

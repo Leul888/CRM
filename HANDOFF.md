@@ -23,16 +23,17 @@ How to launch this CRM for a paying client (for example a home construction comp
 | 3 | Render → Environment | Billing: `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `TRIAL_DAYS` (0 if they pay up front) |
 | 4 | Stripe → Developers → Webhooks | Add endpoint `https://<their-url>/api/billing/webhook` with events `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.paid`, `invoice.payment_failed`. Paste the signing secret into `STRIPE_WEBHOOK_SECRET` |
 | 5 | Their DNS | CNAME `crm.theircompany.com` → the Render URL; add the custom domain in Render (HTTPS is automatic) |
-| 6 | Resend | Verify their domain; set `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_USER=resend`, `SMTP_PASS=<api key>`, `SMTP_FROM=crm@theircompany.com` |
+| 6 | Resend | Verify their domain; set `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=2465` (Render's free plan blocks 25/465/587; 2465 isn't on that list), `SMTP_USER=resend`, `SMTP_PASS=<api key>`, `SMTP_FROM=crm@theircompany.com` |
 | 7 | Optional: Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` for SMS reminders (pass SMS costs through or bundle them) |
 | 8 | The app | Sign in as the owner, set the real password, then **Admin console → Users** and add yourself as a *Manager* for support (put this in the agreement) |
+| — | Going from demo to live | If this service ran with `SEED_DEMO=true`, set it to `false` (and set `ADMIN_EMAIL`/`ADMIN_PASSWORD`). On the next deploy the demo data and demo logins are removed automatically and the demo box disappears from the login page |
 
 ## 3. Configure it for their business (with them on a call)
 
-- **Admin → Company**: legal name, phone, email, address, tax rate, estimate validity, invoice terms.
+- **Admin → Company**: legal name, phone, email, address, tax rate, estimate validity, invoice terms. Turn on **Phone alerts for new leads** and connect the owner's phone with the free ntfy app.
 - **Admin → Branding & website**: logo, brand color, homepage headline, booking text, FAQ.
 - **Admin → Services**: replace the remodeling defaults with what they sell, e.g. *New home build* (specialist), *Additions* (specialist), *Roofing*, *Framing*, *Decks & outdoor*. New services are automatically offered by all estimators.
-- **Admin → Users**: add their team with the right roles. Mark estimators who can run specialist jobs as *Specialist-qualified*.
+- **Admin → Users**: add their team with the right roles using **Invite link** (emailed if email is set up, otherwise copy it and text it). Each person picks their own password. Mark estimators who can run specialist jobs as *Specialist-qualified*.
 - **Leads → Import**: upload their existing customer spreadsheet (CSV). Duplicates are skipped.
 - **Products / Inventory**: add their standard packages so estimators can build estimates fast.
 - **Billing**: the owner clicks **Subscribe** and pays by card in Stripe Checkout. You can also send them the Stripe customer portal.

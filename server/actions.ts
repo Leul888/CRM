@@ -144,6 +144,8 @@ export const ACTION_GUARDS: Record<string, Guard> = {
     delete next.logoDataUrl;
     delete next.logoVersion;
     if (next.brandColor !== undefined && !/^#[0-9a-f]{6}$/i.test(String(next.brandColor))) return 'Brand color must look like #4b3ab3.';
+    // Phone alerts are managed by their own admin endpoint.
+    delete next.ntfyTopic;
     if (next.services !== undefined) {
       const list = next.services as Array<Record<string, unknown>>;
       if (!Array.isArray(list) || list.length === 0 || list.length > 60) return 'Keep between 1 and 60 services.';
@@ -202,6 +204,6 @@ export const scopeState = (user: User, state: CRMState): CRMState => {
     notifications: state.notifications.filter((n) => n.userId === user.id).slice(0, 100),
     outbox: admin ? state.outbox.slice(0, 300) : [],
     users: state.users,
-    settings: (({ logoDataUrl: _logo, ...rest }) => rest)(state.settings),
+    settings: (({ logoDataUrl: _logo, ntfyTopic, ...rest }) => (admin ? { ...rest, ntfyTopic } : rest))(state.settings),
   };
 };

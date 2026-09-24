@@ -57,6 +57,13 @@ export class CRMEngine {
     this.queue('EMAIL', input.to, input.subject, input.body);
   }
 
+  private push(title: string, body: string, link?: string) {
+    if (!this.state.settings.ntfyTopic) return;
+    const entry: OutboundMessage = { id: uid('msg'), channel: 'PUSH', to: "Owner's phone", subject: title, body, link, sentAt: new Date().toISOString(), status: 'QUEUED' };
+    this.state.outbox = [entry, ...(this.state.outbox || [])].slice(0, 500);
+    this.pending.push(entry);
+  }
+
   private sms(input: { to: string; message: string }) {
     this.queue('SMS', input.to, undefined, input.message);
   }
@@ -340,14 +347,38 @@ export class CRMEngine {
     });
 
     const estimator = this.state.users.find((user) => user.id === assignment.estimatorId);
+    // 1) The customer gets a confirmation email.
     this.email({
       to: lead.email,
       subject: `We received your request — ${this.state.settings.companyName}`,
-      body: `Hi ${lead.name}, thanks for reaching out. ${estimator ? `${estimator.name} will` : 'An estimator will'} confirm your visit for ${start.toLocaleString('en-US', { timeZone: this.timeZone })} shortly.`,
+      body: `Hi ${lead.name}, thanks for reaching out. We'll confirm your estimate visit for ${start.toLocaleString('en-US', { timeZone: this.timeZone })} shortly.`,
     });
-    if (estimator) {
-      this.email({ to: estimator.email, subject: 'New estimate request assigned', body: `${lead.name} requested an estimate for ${serviceLabel(input.serviceType)}.` });
-      this.sms({ to: estimator.phone, message: `New appointment request: ${lead.name} on ${start.toLocaleString('en-US', { timeZone: this.timeZone })}` });
+    // 2) The owner gets a phone alert (ntfy). Without phone alerts, the company inbox gets an email instead.
+    if (this.state.settings.ntfyTopic) {
+      this.push('New lead', `${lead.name} · ${serviceLabel(input.serviceType)}`, `${this.appUrl}/#leads/${lead.id}`);
+    } else {
+      const inbox = (this.state.settings.supportEmail || '').trim();
+      if (inbox) {
+        this.email({
+          to: inbox,
+          subject: `New website inquiry: ${lead.name} (${serviceLabel(input.serviceType)})`,
+          body: [
+            `A new estimate request came in from your website.`,
+            ``,
+            `Name: ${input.name}`,
+            `Email: ${input.email}`,
+            `Phone: ${input.phone || '—'}`,
+            `Address: ${input.address || '—'}`,
+            `Service: ${serviceLabel(input.serviceType)}`,
+            `Budget: ${input.budget ? `$${Number(input.budget).toLocaleString('en-US')}` : '—'}`,
+            `Preferred visit: ${start.toLocaleString('en-US', { timeZone: this.timeZone })}`,
+            `Assigned to: ${estimator?.name || 'Unassigned'}`,
+            input.notes ? `\nNotes: ${input.notes}` : '',
+            ``,
+            `Open the lead: ${this.appUrl}/#leads/${lead.id}`,
+          ].join('\n'),
+        });
+      }
     }
 
     return { lead, appointment, assignment, estimator, duplicate: !!duplicate };

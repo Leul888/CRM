@@ -5,6 +5,7 @@ import { Badge, Button, Field, Input, Logo, Textarea, ThemeToggle, useStore } fr
 import BookingForm from '../components/BookingForm';
 import { date, dateTime, humanize, money } from '../services/format';
 import { serviceLabel } from '../services/catalog';
+import { isAdminRole } from '../services/permissions';
 
 const PublicShell: React.FC<{ children: React.ReactNode; wide?: boolean }> = ({ children, wide }) => (
   <div className="min-h-screen bg-ink-50/60">
@@ -473,6 +474,58 @@ export const ResetPassword: React.FC<{ token: string }> = ({ token }) => {
           {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
           <Button type="submit" size="lg" className="w-full">Update password</Button>
         </form>
+      )}
+    </AuthShell>
+  );
+};
+
+// ---------------- Accept invitation ----------------
+export const AcceptInvite: React.FC<{ token: string }> = ({ token }) => {
+  const [info, setInfo] = useState<{ name: string; email: string; companyName: string } | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [pw, setPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    store.getInvite(token).then(setInfo).catch((e) => setLoadError(e instanceof Error ? e.message : 'This invitation is invalid or expired.'));
+  }, [token]);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (weak(pw)) return setError(passwordHint);
+    if (pw !== confirm) return setError('Passwords do not match.');
+    setBusy(true);
+    try {
+      const r = await store.acceptInvite(token, pw);
+      window.location.hash = isAdminRole(r.user.role) ? 'admin' : 'dashboard';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not accept the invitation.');
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthShell>
+      {loadError ? (
+        <div className="mt-8 lg:mt-0">
+          <h2 className="text-3xl font-bold text-ink-950">Invitation unavailable</h2>
+          <p className="mt-4 rounded-2xl bg-amber-50 p-5 text-sm text-amber-900">{loadError}</p>
+          <Button className="mt-5" variant="secondary" onClick={() => (window.location.hash = 'login')}>Go to sign in</Button>
+        </div>
+      ) : !info ? (
+        <div className="mt-8 h-40 animate-pulse rounded-2xl bg-ink-100 lg:mt-0" />
+      ) : (
+        <>
+          <div className="eyebrow mt-8 lg:mt-0">You're invited</div>
+          <h2 className="mt-2 text-3xl font-bold text-ink-950">Welcome to {info.companyName}, {info.name.split(' ')[0]}</h2>
+          <p className="mt-2 text-sm text-ink-500">Choose a password to finish setting up your account. You'll sign in with <span className="font-semibold text-ink-800">{info.email}</span>.</p>
+          <form onSubmit={submit} className="mt-8 space-y-4">
+            <Field label="Password" hint={passwordHint}><PasswordInput value={pw} onChange={setPw} autoComplete="new-password" /></Field>
+            <Field label="Confirm password"><PasswordInput value={confirm} onChange={setConfirm} autoComplete="new-password" /></Field>
+            {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
+            <Button type="submit" size="lg" className="w-full" disabled={busy}>{busy ? 'Setting up…' : 'Create my account'}</Button>
+          </form>
+        </>
       )}
     </AuthShell>
   );

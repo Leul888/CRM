@@ -267,6 +267,20 @@ class Store {
     return this.api<{ ok: true; emailEnabled: boolean }>('/auth/forgot', { body: { email } });
   }
 
+  getInvite(token: string) {
+    return this.api<{ name: string; email: string; companyName: string }>(`/auth/invite/${encodeURIComponent(token)}`);
+  }
+
+  async acceptInvite(token: string, password: string) {
+    const r = await this.api<{ user: User; mustChangePassword: boolean }>('/auth/accept-invite', { body: { token, password } });
+    this.me = r.user;
+    this.mustChangePassword = false;
+    await this.refresh();
+    this.phase = 'ready';
+    this.emit();
+    return r;
+  }
+
   resetPassword(token: string, password: string) {
     return this.api('/auth/reset', { body: { token, password } });
   }
@@ -389,8 +403,8 @@ class Store {
     return this.api<{ users: AdminUser[] }>('/admin/users').then((r) => r.users);
   }
 
-  async createUser(input: Partial<User> & { password?: string; sendInvite?: boolean }) {
-    const r = await this.api<{ user: AdminUser; tempPassword?: string }>('/admin/users', { body: input });
+  async createUser(input: Partial<User> & { password?: string; sendInvite?: boolean; accessMode?: 'invite' | 'temp' | 'set' }) {
+    const r = await this.api<{ user: AdminUser; tempPassword?: string; inviteLink?: string; emailed?: boolean }>('/admin/users', { body: input });
     await this.refresh();
     return r;
   }
@@ -403,6 +417,22 @@ class Store {
 
   adminResetPassword(id: string) {
     return this.api<{ tempPassword: string }>(`/admin/users/${encodeURIComponent(id)}/reset-password`, { body: {} });
+  }
+
+  phoneAlerts() {
+    return this.api<{ enabled: boolean; topic: string | null; server: string }>('/admin/alerts');
+  }
+
+  setPhoneAlerts(enabled: boolean) {
+    return this.api<{ enabled: boolean; topic: string | null; server: string }>('/admin/alerts', { body: { enabled } });
+  }
+
+  testPhoneAlert() {
+    return this.api<{ ok: true }>('/admin/alerts/test', { body: {} });
+  }
+
+  sendInvite(id: string, email = true) {
+    return this.api<{ inviteLink: string; emailed: boolean }>(`/admin/users/${encodeURIComponent(id)}/invite`, { body: { sendInvite: email } });
   }
 
   revokeSessions(id: string) {
