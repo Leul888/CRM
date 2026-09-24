@@ -41,7 +41,7 @@ const Dashboard: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   }, [leads, state.invoices]);
 
   const upcoming = appts
-    .filter((a) => !['CANCELLED', 'COMPLETED'].includes(a.status) && new Date(a.endTime) >= new Date())
+    .filter((a) => !['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(a.status) && new Date(a.endTime) >= new Date())
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     .slice(0, 5);
 
@@ -100,6 +100,15 @@ const Dashboard: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     }),
     ...(finance ? metrics.overdue.map((i) => ({ key: `i-${i.id}`, icon: <CircleDollarSign size={15} />, title: `Collect ${money(i.balanceDue, 0)} from ${i.customerName}`, detail: `${i.invoiceNumber} is overdue`, href: `invoices/${i.id}`, tone: 'red' as const })) : []),
     ...awaiting.map((e) => ({ key: `e-${e.id}`, icon: <FileSignature size={15} />, title: `${s.leadById(e.leadId)?.name || 'Client'} hasn't signed yet`, detail: `${e.number} · ${money(e.total, 0)} · sent ${relative(e.createdAt)}`, href: `estimates/${e.id}`, tone: 'violet' as const })),
+    ...(finance
+      ? workOrders
+          .filter((w) => w.status === 'COMPLETED')
+          .filter((w) => {
+            const inv = state.invoices.find((i) => i.estimateId === w.estimateId && i.status !== 'CANCELLED');
+            return !inv || inv.status === 'DRAFT';
+          })
+          .map((w) => ({ key: `b-${w.id}`, icon: <Receipt size={15} />, title: `Send invoice to ${s.leadById(w.leadId)?.name || 'client'}`, detail: 'Job completed, not billed yet', href: `work-orders/${w.id}`, tone: 'violet' as const }))
+      : []),
     ...(finance ? lowStock.map((i) => ({ key: `s-${i.id}`, icon: <Package2 size={15} />, title: `Reorder ${i.name}`, detail: `${i.quantityOnHand} left`, href: 'inventory', tone: 'amber' as const })) : []),
   ];
   const toneCls = { red: 'bg-rose-50 text-rose-600', amber: 'bg-amber-50 text-amber-700', violet: 'bg-brand-50 text-brand-600' };

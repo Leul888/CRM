@@ -22,12 +22,41 @@ import {
   run,
   useStore,
 } from './SharedComponents';
-import { can, scopeEstimates, scopeLeads } from '../services/permissions';
+import { can, estimatorPool, scopeEstimates, scopeLeads } from '../services/permissions';
 import { date, dateTime, fromLocalInput, money, toDateInput } from '../services/format';
 import { WorkOrderForm } from './WorkOrders';
 import { serviceLabel } from '../services/catalog';
+import { OPEN_VISIT, VisitOutcome } from './Appointments';
 
 const CATEGORIES = ['Labor', 'Materials', 'Equipment', 'Permits', 'Other'];
+
+/** Common construction units. "Other…" allows anything else. */
+export const UNITS = ['each', 'sq ft', 'linear ft', 'sq yd', 'cu yd', 'square', 'hour', 'day', 'week', 'lot', 'job', 'room', 'window', 'door', 'fixture', 'sheet', 'bundle', 'gallon', 'load', 'ton', 'allowance'];
+
+const UnitPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+  const [custom, setCustom] = useState(!!value && !UNITS.includes(value));
+  if (custom)
+    return (
+      <div className="flex w-32 items-center gap-1">
+        <Input value={value} autoFocus placeholder="Unit" onChange={(e) => onChange(e.target.value)} className="min-w-0" />
+        <button type="button" title="Pick from list" aria-label="Pick from list" className="shrink-0 rounded-full p-1 text-xs text-ink-400 hover:bg-ink-100 hover:text-ink-900" onClick={() => { setCustom(false); if (!UNITS.includes(value)) onChange('each'); }}>▾</button>
+      </div>
+    );
+  return (
+    <Select
+      className="w-32"
+      aria-label="Unit"
+      value={UNITS.includes(value) ? value : 'each'}
+      onChange={(e) => {
+        if (e.target.value === '__other') {
+          setCustom(true);
+          onChange('');
+        } else onChange(e.target.value);
+      }}
+      options={[...UNITS.map((u) => ({ value: u, label: u })), { value: '__other', label: 'Other…' }]}
+    />
+  );
+};
 
 export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; leadId?: string; onClose: () => void; onSaved?: (e: Estimate) => void }> = ({
   currentUser,
@@ -45,13 +74,23 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
   const [serviceType, setServiceType] = useState<ServiceType>(estimate?.serviceType || initialLead?.serviceType || 'FLOORING_REPLACEMENT');
   const [items, setItems] = useState<EstimateLineItem[]>(estimate?.lineItems.map((i) => ({ ...i })) || [lineItem('Labor', 'Labor', 1, 'lot', 0)]);
   const [discount, setDiscount] = useState(estimate?.discount || 0);
-  const [taxRate, setTaxRate] = useState(estimate?.taxRate ?? s.state.settings.defaultTaxRate ?? 0);
+  const companyTax = s.state.settings.defaultTaxRate ?? 0;
+  // Tax is on by default. Existing estimates keep whatever they were saved with.
+  const [taxOn, setTaxOn] = useState(estimate ? (estimate.taxRate ?? 0) > 0 : true);
+  const [rateInput, setRateInput] = useState<number>(estimate?.taxRate || companyTax || 0);
+  const [saveDefault, setSaveDefault] = useState(companyTax === 0);
+  const canSetDefault = can(currentUser, 'settings:manage');
+  const taxRate = taxOn ? rateInput : 0;
   const [notes, setNotes] = useState(estimate?.notes || '');
   const [expiration, setExpiration] = useState(toDateInput(estimate?.expirationDate || new Date(Date.now() + validity * 86400_000).toISOString()));
   const [productPick, setProductPick] = useState('');
   const [error, setError] = useState('');
 
   const totals = useMemo(() => computeEstimateTotals(items, discount, taxRate), [items, discount, taxRate]);
+  // Open site visits for this lead (or the latest one), so the outcome can be recorded right here.
+  const leadVisits = s.state.appointments.filter((a) => a.leadId === leadSel).sort((a, b) => b.startTime.localeCompare(a.startTime));
+  const openVisits = leadVisits.filter((a) => OPEN_VISIT.includes(a.status));
+  const visits = openVisits.length ? openVisits : leadVisits.slice(0, 1);
   const products = s.state.products.filter((p) => p.active);
 
   const update = (id: string, patch: Partial<EstimateLineItem>) =>
@@ -71,6 +110,11 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
     if (!clean.length) return setError('Add at least one line item.');
     if (clean.some((i) => i.quantity <= 0 || i.unitPrice < 0)) return setError('Quantities must be above zero and prices non-negative.');
     if (discount > totals.subtotal) return setError('Discount cannot exceed the subtotal.');
+    if (taxOn && !(rateInput > 0)) return setError('Enter your sales tax rate, or untick "Add sales tax" if this job is tax-exempt.');
+    if (taxOn && rateInput > 30) return setError('That tax rate looks too high. Enter it as a percent, e.g. 6.35.');
+    if (taxOn && canSetDefault && saveDefault && rateInput !== companyTax) {
+      await s.saveSettings({ ...s.state.settings, defaultTaxRate: rateInput });
+    }
     const t = computeEstimateTotals(clean, discount, taxRate);
     const saved = await s.saveEstimate({
       id: estimate?.id,
@@ -127,12 +171,18 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
             placeholder="Select lead"
           />
         </Field>
-        <Field label="Estimator"><Select value={estimatorId} onChange={(e) => setEstimatorId(e.target.value)} placeholder="Select" options={s.usersByRole('ESTIMATOR').map((u) => ({ value: u.id, label: u.name }))} /></Field>
+        <Field label="Estimator"><Select value={estimatorId} onChange={(e) => setEstimatorId(e.target.value)} placeholder="Select" options={estimatorPool(s.state.users).map((u) => ({ value: u.id, label: u.name }))} /></Field>
         <Field label="Service"><Select value={serviceType} onChange={(e) => setServiceType(e.target.value as ServiceType)} options={s.services.map((x) => ({ value: x.key, label: x.label }))} /></Field>
       </div>
 
+      {visits.length > 0 && (
+        <div className="mt-5 space-y-2">
+          {visits.map((a) => <VisitOutcome key={a.id} appt={a} currentUser={currentUser} compact />)}
+        </div>
+      )}
+
       <div className="mt-6 overflow-x-auto rounded-2xl border border-ink-200">
-        <table className="min-w-[760px] w-full text-sm">
+        <table className="min-w-[820px] w-full text-sm">
           <thead className="bg-ink-50">
             <tr>
               <th className="table-head w-[36%]">Description</th>
@@ -150,7 +200,7 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
                 <td className="p-2"><Input value={i.description} onChange={(e) => update(i.id, { description: e.target.value })} placeholder="Describe the work" /></td>
                 <td className="p-2"><Select value={i.category} onChange={(e) => update(i.id, { category: e.target.value })} options={CATEGORIES.map((c) => ({ value: c, label: c }))} /></td>
                 <td className="p-2"><Input type="number" min={0} step="any" value={i.quantity} onChange={(e) => update(i.id, { quantity: Number(e.target.value) })} className="w-20" /></td>
-                <td className="p-2"><Input value={i.unit} onChange={(e) => update(i.id, { unit: e.target.value })} className="w-24" /></td>
+                <td className="p-2"><UnitPicker value={i.unit} onChange={(v) => update(i.id, { unit: v })} /></td>
                 <td className="p-2"><Input type="number" min={0} step="any" value={i.unitPrice} onChange={(e) => update(i.id, { unitPrice: Number(e.target.value) })} className="w-28" /></td>
                 <td className="p-2 text-right font-semibold">{money(i.total)}</td>
                 <td className="p-2 text-right">
@@ -169,7 +219,26 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
       <div className="mt-6 grid gap-6 md:grid-cols-[1fr,320px]">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Discount ($)"><Input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} /></Field>
-          <Field label="Tax rate (%)"><Input type="number" min={0} step="0.01" value={taxRate} onChange={(e) => setTaxRate(Number(e.target.value))} /></Field>
+          <div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+              <input type="checkbox" checked={taxOn} onChange={(e) => setTaxOn(e.target.checked)} className="h-4 w-4 accent-brand-600" /> Add sales tax
+            </label>
+            {taxOn ? (
+              <div className="mt-1.5">
+                <div className="relative">
+                  <Input type="number" min={0} step="0.01" aria-label="Tax rate (%)" placeholder="e.g. 6.35" value={rateInput || ''} onChange={(e) => { setRateInput(Number(e.target.value)); setError(""); }} className={`pr-8 ${!(rateInput > 0) ? '!border-amber-400' : ''}`} />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">%</span>
+                </div>
+                {canSetDefault && rateInput > 0 && rateInput !== companyTax && (
+                  <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-600">
+                    <input type="checkbox" checked={saveDefault} onChange={(e) => setSaveDefault(e.target.checked)} className="h-3.5 w-3.5 accent-brand-600" /> Use {rateInput}% for all new estimates
+                  </label>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1.5 text-xs text-ink-500">No tax on this estimate (tax-exempt).</p>
+            )}
+          </div>
           <Field label="Valid until"><Input type="date" value={expiration} onChange={(e) => setExpiration(e.target.value)} /></Field>
           <Field label="Client-facing notes" className="sm:col-span-2"><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         </div>
@@ -177,7 +246,7 @@ export const EstimateEditor: React.FC<{ currentUser: User; estimate?: Estimate; 
           <div className="flex justify-between text-ink-600"><span>Labor</span><span>{money(totals.laborCost)}</span></div>
           <div className="flex justify-between text-ink-600"><span>Materials & other</span><span>{money(totals.materialCost)}</span></div>
           <div className="flex justify-between text-ink-600"><span>Discount</span><span>−{money(discount)}</span></div>
-          <div className="flex justify-between text-ink-600"><span>Tax ({taxRate}%)</span><span>{money(totals.tax)}</span></div>
+          <div className="flex justify-between text-ink-600"><span>{taxOn ? `Sales tax (${rateInput || 0}%)` : 'Sales tax'}</span><span>{money(totals.tax)}</span></div>
           <div className="flex justify-between border-t border-brand-200 pt-3 font-display text-xl font-bold text-brand-800"><span>Total</span><span>{money(totals.total)}</span></div>
         </div>
       </div>
@@ -190,7 +259,7 @@ const EstimateDrawer: React.FC<{ estimate: Estimate; currentUser: User; onClose:
   const s = useStore();
   const lead = s.leadById(estimate.leadId);
   const sig = s.getApprovalSignatureForEstimate(estimate.id);
-  const invoice = s.state.invoices.find((i) => i.estimateId === estimate.id);
+  const invoice = s.state.invoices.find((i) => i.estimateId === estimate.id && i.status !== 'CANCELLED');
   const wo = s.state.workOrders.find((w) => w.estimateId === estimate.id);
   const [edit, setEdit] = useState(false);
   const [del, setDel] = useState(false);

@@ -130,7 +130,7 @@ const tone: Record<string, string> = {
 const statusTone: Record<string, keyof typeof tone> = {
   NEW: 'violet', CONTACTED: 'blue', SCHEDULED: 'blue', ESTIMATE_SENT: 'amber', APPROVED: 'green', JOB_SCHEDULED: 'violet',
   IN_PROGRESS: 'amber', COMPLETED: 'green', INVOICED: 'blue', PAID: 'green', LOST: 'red',
-  REQUESTED: 'amber', CONFIRMED: 'green', CANCELLED: 'gray', PENDING: 'gray', QUEUED: 'amber', SENT: 'blue', FAILED: 'red',
+  REQUESTED: 'amber', CONFIRMED: 'green', CANCELLED: 'gray', NO_SHOW: 'red', PENDING: 'gray', QUEUED: 'amber', SENT: 'blue', FAILED: 'red',
   DRAFT: 'gray', REJECTED: 'red', EXPIRED: 'gray', PARTIALLY_PAID: 'amber', OVERDUE: 'red', DECLINED: 'red',
   ASSIGNED: 'violet', ACCEPTED: 'blue', IN_STOCK: 'green', LOW_STOCK: 'amber', OUT_OF_STOCK: 'red',
   OWNER: 'dark', MANAGER: 'violet', OFFICE_MANAGER: 'violet', DISPATCHER: 'blue', SALES_REP: 'blue', ESTIMATOR: 'green', WORKER: 'gray', SUBCONTRACTOR: 'gray',

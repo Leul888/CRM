@@ -44,7 +44,7 @@ export type LeadStatus =
 
 export type LeadSource = 'WEBSITE' | 'CALL_CENTER' | 'SOCIAL_MEDIA' | 'REFERRAL' | 'MANUAL';
 
-export type AppointmentStatus = 'REQUESTED' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+export type AppointmentStatus = 'REQUESTED' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
 export type ReminderStatus = 'PENDING' | 'QUEUED' | 'SENT' | 'FAILED';
 

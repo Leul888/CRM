@@ -21,9 +21,9 @@ import {
   run,
   useStore,
 } from './SharedComponents';
-import { can, scopeLeads } from '../services/permissions';
-import { date, dateTime, downloadFile, fromLocalInput, humanize, isEmail, money, relative, toCsv, toDateInput } from '../services/format';
-import { AppointmentForm } from './Appointments';
+import { can, estimatorPool, scopeLeads } from '../services/permissions';
+import { date, downloadFile, fromLocalInput, humanize, isEmail, money, relative, toCsv, toDateInput } from '../services/format';
+import { AppointmentForm, VisitOutcome } from './Appointments';
 import ImportCustomers from './ImportCustomers';
 import { EstimateEditor } from './Estimates';
 import { serviceLabel } from '../services/catalog';
@@ -54,7 +54,9 @@ export const LeadForm: React.FC<{ lead: Draft; currentUser: User; onClose: () =>
   const [d, setD] = useState<Draft>(lead);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const canAssign = can(currentUser, 'lead:assign');
-  const estimators = s.usersByRole('ESTIMATOR').filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const estPool = estimatorPool(s.state.users);
+  const estCapable = estPool.filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const estimators = estCapable.length ? estCapable : estPool;
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
@@ -170,9 +172,7 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
             <div className="eyebrow mb-3">Related</div>
             <div className="space-y-2">
               {appts.map((a) => (
-                <a key={a.id} href="#appointments" className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-sm hover:border-brand-300">
-                  <span>Visit · {dateTime(a.startTime)} · {s.userName(a.estimatorId)}</span><Badge value={a.status} />
-                </a>
+                <VisitOutcome key={a.id} appt={a} currentUser={currentUser} />
               ))}
               {ests.map((e) => (
                 <a key={e.id} href={`#estimates/${e.id}`} className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-sm hover:border-brand-300">
@@ -213,7 +213,7 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
       {edit && <LeadForm lead={lead} currentUser={currentUser} onClose={() => setEdit(false)} />}
       {confirm && <ConfirmDialog title="Delete lead?" message={`This permanently removes ${lead.name} and their appointments, estimates, invoices and work orders.`} onConfirm={() => void run(s.deleteLead(lead.id), 'Lead deleted').then(onClose)} onClose={() => setConfirm(false)} />}
       {schedule && <AppointmentForm currentUser={currentUser} initial={{ leadId: lead.id }} onClose={() => setSchedule(false)} />}
-      {estimate && <EstimateEditor currentUser={currentUser} leadId={lead.id} onClose={() => setEstimate(false)} />}
+      {estimate && <EstimateEditor currentUser={currentUser} leadId={lead.id} onClose={() => setEstimate(false)} onSaved={(e) => setTimeout(() => (window.location.hash = `estimates/${e.id}`), 0)} />}
     </>
   );
 };

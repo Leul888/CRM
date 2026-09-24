@@ -239,7 +239,7 @@ export class CRMEngine {
       : [payload, ...this.state.appointments];
 
     const lead = this.leadById(payload.leadId);
-    if (lead && ['NEW', 'CONTACTED'].includes(lead.status) && payload.status !== 'CANCELLED') {
+    if (lead && ['NEW', 'CONTACTED'].includes(lead.status) && !['CANCELLED', 'NO_SHOW'].includes(payload.status)) {
       this.updateLeadStatus(lead.id, 'SCHEDULED', false);
     }
     if (lead) {
@@ -251,7 +251,7 @@ export class CRMEngine {
       );
     }
 
-    if (options?.syncCalendar !== false && payload.status !== 'CANCELLED') {
+    if (options?.syncCalendar !== false && !['CANCELLED', 'NO_SHOW'].includes(payload.status)) {
       this.calendar(payload.estimatorId, existing ? 'Calendar event updated' : 'Calendar event created', `${payload.googleCalendarEventId} · ${humanize(payload.status)} · ${new Date(payload.startTime).toLocaleString('en-US', { timeZone: this.timeZone })}`);
     }
 
@@ -262,7 +262,7 @@ export class CRMEngine {
   setAppointmentStatus(appointmentId: string, status: Appointment['status']) {
     const appointment = this.state.appointments.find((item) => item.id === appointmentId);
     if (!appointment) return;
-    if (status === 'CANCELLED') {
+    if (status === 'CANCELLED' || status === 'NO_SHOW') {
       this.saveAppointment({ ...appointment, status }, { syncCalendar: false });
       this.calendar(appointment.estimatorId, 'Calendar event cancelled', appointment.googleCalendarEventId || appointment.id);
       return;
@@ -494,6 +494,8 @@ export class CRMEngine {
     if (status === 'APPROVED') {
       this.updateLeadStatus(estimate.leadId, 'APPROVED', false);
       this.logActivity(estimate.leadId, `Estimate ${estimate.number} marked approved by staff.`);
+      // Same as an e-signed approval: a draft invoice is ready to send.
+      this.createInvoiceFromEstimate(estimate.id, false);
     }
     this.notify();
   }
@@ -507,7 +509,8 @@ export class CRMEngine {
   createInvoiceFromEstimate(estimateId: string, notify = true) {
     const estimate = this.state.estimates.find((item) => item.id === estimateId);
     if (!estimate) return null;
-    const existing = this.state.invoices.find((invoice) => invoice.estimateId === estimateId);
+    // A voided invoice doesn't count: the job can be billed again.
+    const existing = this.state.invoices.find((invoice) => invoice.estimateId === estimateId && invoice.status !== 'CANCELLED');
     if (existing) return existing;
     const lead = this.leadById(estimate.leadId);
     if (!lead) return null;
