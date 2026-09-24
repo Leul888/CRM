@@ -1,5 +1,6 @@
 import React, { useEffect, useSyncExternalStore } from 'react';
-import { CheckCircle2, Info, Search, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Info, Moon, Search, Sun, X, XCircle } from 'lucide-react';
+import { getTheme, setTheme, type ThemeMode } from '../services/brand';
 import { store } from '../store';
 import { humanize, initials } from '../services/format';
 
@@ -17,6 +18,30 @@ export const useStore = () => {
   return store;
 };
 
+// ---------- night mode ----------
+export const ThemeToggle: React.FC<{ className?: string; onDark?: boolean }> = ({ className = '', onDark }) => {
+  const [mode, setMode] = React.useState<ThemeMode>(getTheme());
+  useEffect(() => {
+    const h = () => setMode(getTheme());
+    window.addEventListener('cf-theme', h);
+    return () => window.removeEventListener('cf-theme', h);
+  }, []);
+  const next = mode === 'dark' ? 'light' : 'dark';
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(next)}
+      aria-label={next === 'dark' ? 'Switch to night mode' : 'Switch to light mode'}
+      title={next === 'dark' ? 'Night mode' : 'Light mode'}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition ${
+        onDark ? 'border-white/30 text-white hover:bg-white/10' : 'border-ink-200 bg-surface text-ink-600 hover:text-ink-950'
+      } ${className}`}
+    >
+      {mode === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+    </button>
+  );
+};
+
 // ---------- brand ----------
 const Wordmark: React.FC<{ dark?: boolean }> = ({ dark }) => {
   const s = useStore();
@@ -26,7 +51,7 @@ const Wordmark: React.FC<{ dark?: boolean }> = ({ dark }) => {
   return (
     <span className={`max-w-[220px] truncate font-display text-[17px] font-bold tracking-tight ${dark ? 'text-white' : 'text-ink-950'}`}>
       {parts.join(' ')}
-      {last ? <span className={dark ? 'text-brand-300' : 'text-brand-600'}> {last}</span> : null}
+      {last ? <span className={dark ? 'text-white/70' : 'text-brand-600 dark:text-brand-400'}> {last}</span> : null}
     </span>
   );
 };
@@ -37,9 +62,9 @@ export const Logo: React.FC<{ dark?: boolean; compact?: boolean }> = ({ dark, co
   return (
     <span className="inline-flex items-center gap-2.5">
       {logo ? (
-        <img src={logo} alt="" className={`h-9 w-9 shrink-0 rounded-[10px] object-contain ${dark ? 'bg-white p-1' : ''}`} />
+        <img src={logo} alt="" className={`h-9 w-9 shrink-0 rounded-[10px] object-contain ${dark ? 'bg-surface p-1' : ''}`} />
       ) : (
-        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-glow">
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-deep shadow-glow">
           <svg viewBox="0 0 32 32" className="h-5 w-5" aria-hidden>
             <path d="M7 24V13.5L16 6.5l9 7V24h-5.5v-6.5h-7V24z" fill="#fff" />
           </svg>
@@ -55,11 +80,11 @@ type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 
 const variants: Record<ButtonVariant, string> = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 shadow-[0_8px_24px_-10px_rgb(var(--brand-600)/0.7)]',
   secondary: 'bg-brand-50 text-brand-700 hover:bg-brand-100',
-  outline: 'border border-ink-200 bg-white text-ink-800 hover:border-ink-300 hover:bg-ink-50',
+  outline: 'border border-ink-200 bg-surface text-ink-800 hover:border-ink-300 hover:bg-ink-50',
   ghost: 'text-ink-600 hover:bg-ink-100 hover:text-ink-900',
   danger: 'bg-rose-600 text-white hover:bg-rose-700',
   dark: 'bg-brand-700 text-white hover:bg-brand-800',
-  light: 'bg-white text-ink-950 hover:bg-brand-50',
+  light: 'bg-surface text-ink-950 hover:bg-brand-50',
 };
 const sizes = {
   sm: 'h-8 px-3 text-xs gap-1.5',
@@ -105,7 +130,7 @@ const tone: Record<string, string> = {
 const statusTone: Record<string, keyof typeof tone> = {
   NEW: 'violet', CONTACTED: 'blue', SCHEDULED: 'blue', ESTIMATE_SENT: 'amber', APPROVED: 'green', JOB_SCHEDULED: 'violet',
   IN_PROGRESS: 'amber', COMPLETED: 'green', INVOICED: 'blue', PAID: 'green', LOST: 'red',
-  REQUESTED: 'amber', CONFIRMED: 'green', CANCELLED: 'gray', PENDING: 'gray', QUEUED: 'amber', SENT: 'blue', FAILED: 'red',
+  REQUESTED: 'amber', CONFIRMED: 'green', CANCELLED: 'gray', NO_SHOW: 'red', PENDING: 'gray', QUEUED: 'amber', SENT: 'blue', FAILED: 'red',
   DRAFT: 'gray', REJECTED: 'red', EXPIRED: 'gray', PARTIALLY_PAID: 'amber', OVERDUE: 'red', DECLINED: 'red',
   ASSIGNED: 'violet', ACCEPTED: 'blue', IN_STOCK: 'green', LOW_STOCK: 'amber', OUT_OF_STOCK: 'red',
   OWNER: 'dark', MANAGER: 'violet', OFFICE_MANAGER: 'violet', DISPATCHER: 'blue', SALES_REP: 'blue', ESTIMATOR: 'green', WORKER: 'gray', SUBCONTRACTOR: 'gray',
@@ -166,16 +191,16 @@ export const StatCard: React.FC<{ label: string; value: string; hint?: string; i
     disabled={!onClick}
     className={`group relative overflow-hidden rounded-2xl border p-5 text-left transition disabled:cursor-default ${
       accent
-        ? 'border-brand-700 bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-glow'
-        : 'border-ink-200/80 bg-white shadow-card enabled:hover:-translate-y-0.5 enabled:hover:border-brand-200'
+        ? 'border-brand-700 bg-gradient-to-br from-brand-600 to-brand-deep text-white shadow-glow'
+        : 'border-ink-200/80 bg-surface shadow-card enabled:hover:-translate-y-0.5 enabled:hover:border-brand-200'
     }`}
   >
     <div className="flex items-center justify-between">
-      <span className={`text-xs font-semibold uppercase tracking-[0.14em] ${accent ? 'text-brand-100' : 'text-ink-500'}`}>{label}</span>
+      <span className={`text-xs font-semibold uppercase tracking-[0.14em] ${accent ? 'text-white/80' : 'text-ink-500'}`}>{label}</span>
       {icon && <span className={`flex h-8 w-8 items-center justify-center rounded-full ${accent ? 'bg-white/15 text-white' : 'bg-brand-50 text-brand-600'}`}>{icon}</span>}
     </div>
     <div className={`mt-4 font-display text-[32px] font-bold leading-none tracking-tight ${accent ? 'text-white' : 'text-ink-950'}`}>{value}</div>
-    {hint && <div className={`mt-2 text-xs font-medium ${accent ? 'text-brand-100' : 'text-ink-500'}`}>{hint}</div>}
+    {hint && <div className={`mt-2 text-xs font-medium ${accent ? 'text-white/80' : 'text-ink-500'}`}>{hint}</div>}
   </button>
 );
 
@@ -196,7 +221,7 @@ export const Tabs: React.FC<{ value: string; onChange: (v: string) => void; item
         type="button"
         onClick={() => onChange(i.value)}
         className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-          value === i.value ? 'bg-white text-ink-950 shadow-sm' : 'text-ink-500 hover:text-ink-900'
+          value === i.value ? 'bg-surface text-ink-950 shadow-sm' : 'text-ink-500 hover:text-ink-900'
         }`}
       >
         {i.label}
@@ -266,8 +291,8 @@ export const Modal: React.FC<{ title: string; description?: string; onClose: () 
   const w = size === 'xl' ? 'max-w-5xl' : size === 'lg' ? 'max-w-3xl' : 'max-w-xl';
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal aria-label={title}>
-      <div className="absolute inset-0 bg-ink-950/50 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative flex max-h-[92vh] w-full ${w} animate-fade-up flex-col overflow-hidden rounded-t-3xl bg-white shadow-pop sm:rounded-3xl`}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className={`relative flex max-h-[92vh] w-full ${w} animate-fade-up flex-col overflow-hidden rounded-t-3xl bg-surface shadow-pop sm:rounded-3xl`}>
         <div className="flex items-start justify-between gap-4 border-b border-ink-100 px-6 py-5">
           <div>
             <h2 className="text-xl font-bold text-ink-950">{title}</h2>
@@ -294,8 +319,8 @@ export const Drawer: React.FC<{ title: React.ReactNode; subtitle?: React.ReactNo
   useEscape(onClose);
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal>
-      <div className="absolute inset-0 bg-ink-950/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-xl animate-slide-in flex-col bg-white shadow-pop">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <aside className="absolute inset-y-0 right-0 flex w-full max-w-xl animate-slide-in flex-col bg-surface shadow-pop">
         <div className="flex items-start justify-between gap-4 border-b border-ink-100 px-6 py-5">
           <div className="min-w-0">
             <div className="truncate font-display text-xl font-bold text-ink-950">{title}</div>
@@ -348,7 +373,7 @@ export const Toaster: React.FC = () => {
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2 no-print">
       {s.toasts.map((t) => (
-        <div key={t.id} className="pointer-events-auto flex animate-fade-up items-start gap-3 rounded-2xl border border-ink-200 bg-white px-4 py-3 text-sm font-medium text-ink-900 shadow-pop">
+        <div key={t.id} className="pointer-events-auto flex animate-fade-up items-start gap-3 rounded-2xl border border-ink-200 bg-surface px-4 py-3 text-sm font-medium text-ink-900 shadow-pop">
           {t.kind === 'success' ? <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-500" /> : t.kind === 'error' ? <XCircle size={18} className="mt-0.5 shrink-0 text-rose-400" /> : <Info size={18} className="mt-0.5 shrink-0 text-brand-500" />}
           <span className="flex-1">{t.message}</span>
           <button onClick={() => s.dismissToast(t.id)} className="text-ink-400 hover:text-ink-900" aria-label="Dismiss">
@@ -396,6 +421,6 @@ export const DetailRow: React.FC<{ label: string; children: React.ReactNode }> =
 
 export const ProgressBar: React.FC<{ value: number; className?: string }> = ({ value, className = '' }) => (
   <div className={`h-1.5 w-full overflow-hidden rounded-full bg-ink-100 ${className}`}>
-    <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-700 transition-all" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-deep transition-all" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
   </div>
 );

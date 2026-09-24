@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { CheckCircle2, ClipboardList, MapPin, Paperclip, Pencil, Play, Plus, Trash2, X } from 'lucide-react';
+import { CheckCircle2, ClipboardList, MapPin, Paperclip, Pencil, Play, Plus, Receipt, Send, Trash2, X } from 'lucide-react';
 import type { User, WorkOrder, WorkOrderStatus } from '../types';
 import { uid } from '../store';
 import { Badge, Button, Card, ConfirmDialog, DetailRow, Drawer, EmptyState, Field, Input, Modal, PageHeader, ProgressBar, Select, Tabs, Textarea, run, useStore } from './SharedComponents';
-import { can, isAdminRole, scopeWorkOrders } from '../services/permissions';
-import { dateTime, fromLocalInput, humanize, toLocalInput } from '../services/format';
+import { can, crewPool, isAdminRole, scopeWorkOrders } from '../services/permissions';
+import { dateTime, fromLocalInput, humanize, money, toLocalInput } from '../services/format';
 import { serviceLabel } from '../services/catalog';
 
 export const WorkOrderForm: React.FC<{ currentUser: User; workOrder?: WorkOrder; estimateId?: string; onClose: () => void }> = ({ currentUser, workOrder, estimateId, onClose }) => {
@@ -30,7 +30,7 @@ export const WorkOrderForm: React.FC<{ currentUser: User; workOrder?: WorkOrder;
   const [newItem, setNewItem] = useState('');
   const [error, setError] = useState('');
   const est = s.state.estimates.find((e) => e.id === d.estimateId);
-  const crews = s.state.users.filter((u) => ['WORKER', 'SUBCONTRACTOR'].includes(u.role) && u.active);
+  const crews = crewPool(s.state.users);
   const capable = crews.filter((u) => !est || u.serviceCapabilities.includes(est.serviceType));
 
   const save = async () => {
@@ -114,6 +114,18 @@ const WorkOrderDrawer: React.FC<{ wo: WorkOrder; currentUser: User; onClose: () 
   const canUpdate = can(currentUser, 'workorder:update-status') && (isAdminRole(currentUser.role) || currentUser.role === 'DISPATCHER' || wo.assignedWorkerId === currentUser.id);
   const checklist = wo.checklist || [];
   const done = checklist.filter((c) => c.done).length;
+  const finance = can(currentUser, 'invoice:manage');
+  const invoice = s.state.invoices.find((i) => i.estimateId === wo.estimateId && i.status !== 'CANCELLED');
+  const jobDone = wo.status === 'COMPLETED';
+  const billed = !!invoice && invoice.status !== 'DRAFT';
+  const createInvoice = async () => {
+    const inv = await s.createInvoiceFromEstimate(wo.estimateId);
+    if (inv) s.toast(`Invoice ${inv.invoiceNumber} ready to send`);
+  };
+  const sendInvoice = async () => {
+    if (!invoice) return;
+    await run(s.sendInvoice(invoice.id), `Invoice ${invoice.invoiceNumber} emailed to ${invoice.customerEmail}`);
+  };
 
   const [uploading, setUploading] = useState(0);
   const attach = async (input: HTMLInputElement) => {
@@ -156,6 +168,8 @@ const WorkOrderDrawer: React.FC<{ wo: WorkOrder; currentUser: User; onClose: () 
                 void run(s.updateWorkOrderStatus(wo.id, next.to), `Job ${humanize(next.to).toLowerCase()}`);
               }}>{next.label}</Button>
             )}
+            {finance && jobDone && !invoice && <Button icon={<Receipt size={16} />} onClick={() => void createInvoice()}>Create invoice</Button>}
+            {finance && jobDone && invoice?.status === 'DRAFT' && <Button icon={<Send size={16} />} onClick={() => void sendInvoice()}>Send invoice</Button>}
             {can(currentUser, 'workorder:create') && <Button variant="outline" icon={<Pencil size={15} />} onClick={() => setEdit(true)}>Edit</Button>}
             {can(currentUser, 'workorder:create') && !['COMPLETED', 'CANCELLED'].includes(wo.status) && <Button variant="ghost" onClick={() => void run(s.updateWorkOrderStatus(wo.id, 'CANCELLED'), 'Work order cancelled')}>Cancel job</Button>}
             {can(currentUser, 'lead:delete') && <Button variant="ghost" className="ml-auto text-rose-600" icon={<Trash2 size={15} />} onClick={() => setDel(true)}>Delete</Button>}
@@ -163,6 +177,32 @@ const WorkOrderDrawer: React.FC<{ wo: WorkOrder; currentUser: User; onClose: () 
         }
       >
         <a href={`https://maps.google.com/?q=${encodeURIComponent(wo.location)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-2xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-800"><MapPin size={16} /> {wo.location}</a>
+        {finance && (
+          <div className={`mt-4 rounded-2xl border p-4 ${jobDone && !billed ? 'border-brand-200 bg-brand-50/70' : 'border-ink-200'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-sm font-semibold"><Receipt size={16} className="text-brand-600" /> Invoice</span>
+              {invoice ? <Badge value={invoice.status} /> : <Badge value="PENDING" tone="gray" label="Not created" />}
+            </div>
+            {invoice ? (
+              <>
+                <p className="mt-2 text-sm text-ink-600">
+                  {invoice.invoiceNumber} · {money(invoice.total)}
+                  {invoice.amountPaid > 0 ? ` · ${money(invoice.balanceDue)} still owed` : ''}
+                </p>
+                {jobDone && invoice.status === 'DRAFT' && <p className="mt-1 text-xs font-medium text-brand-700">Job's done. Send the invoice so the client can pay.</p>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {invoice.status === 'DRAFT' && <Button size="sm" icon={<Send size={14} />} onClick={() => void sendInvoice()}>Send invoice</Button>}
+                  <Button size="sm" variant="secondary" onClick={() => (window.location.hash = `invoices/${invoice.id}`)}>Open invoice</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-ink-600">{jobDone ? "Job's done. Create the invoice from the approved estimate." : 'You can bill now (for a deposit) or when the job is done.'}</p>
+                <Button size="sm" className="mt-3" icon={<Receipt size={14} />} onClick={() => void createInvoice()}>Create invoice</Button>
+              </>
+            )}
+          </div>
+        )}
         <div className="mt-4 divide-y divide-ink-100 rounded-2xl border border-ink-200 px-4">
           <DetailRow label="Start">{dateTime(wo.scheduledStart)}</DetailRow>
           <DetailRow label="End">{dateTime(wo.scheduledEnd)}</DetailRow>

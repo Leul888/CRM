@@ -48,7 +48,7 @@ export const assignEstimatorForService = (
 
   const candidates = pool
     .map((u) => {
-      const theirs = appointments.filter((a) => a.estimatorId === u.id && a.status !== 'CANCELLED' && a.status !== 'COMPLETED');
+      const theirs = appointments.filter((a) => a.estimatorId === u.id && !['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(a.status));
       const conflicts = theirs.filter((a) => overlaps(start, end, new Date(a.startTime), new Date(a.endTime))).length;
       const load = theirs.filter((a) => new Date(a.startTime).getTime() >= nowTs).length;
       return { id: u.id, name: u.name, conflicts, load };

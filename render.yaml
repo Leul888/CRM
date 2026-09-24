@@ -44,5 +44,9 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      - key: INVOICE_STRIPE_SECRET_KEY
+        sync: false
+      - key: INVOICE_STRIPE_WEBHOOK_SECRET
+        sync: false
       - key: TRIAL_DAYS
         value: "14"

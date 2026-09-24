@@ -135,10 +135,27 @@ export const activeSessionCount = (userId: string) =>
 export const pruneSessions = () => db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(new Date().toISOString());
 
 // ---------- password reset ----------
-export const createResetToken = (userId: string) => {
+/** One-time link token. Issuing a new one cancels any earlier unused link for the same user. */
+export const createResetToken = (userId: string, ttlMs = 3600_000) => {
   const raw = crypto.randomBytes(32).toString('base64url');
-  db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha256(raw), userId, new Date(Date.now() + 3600_000).toISOString());
+  db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(userId);
+  db.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(sha256(raw), userId, new Date(Date.now() + ttlMs).toISOString());
   return raw;
+};
+
+export const INVITE_TTL_MS = 7 * 86400_000;
+
+/** Looks up a token without using it up (the invite page shows who it's for). */
+export const peekResetToken = (raw: string) => {
+  const row = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(sha256(raw)) as
+    | { user_id: string; expires_at: string; used: number }
+    | undefined;
+  if (!row || row.used || new Date(row.expires_at) < new Date()) return null;
+  return row.user_id;
+};
+
+export const clearAllCredentials = () => {
+  db.exec('DELETE FROM sessions; DELETE FROM password_resets; DELETE FROM credentials;');
 };
 
 export const consumeResetToken = (raw: string) => {

@@ -96,7 +96,7 @@ export const BookingForm: React.FC<{ tone?: 'light' | 'dark' }> = ({ tone = 'lig
         'text/calendar',
       );
     return (
-      <div className="animate-fade-up rounded-3xl bg-white p-8 text-ink-900 shadow-pop">
+      <div className="animate-fade-up rounded-3xl bg-surface p-8 text-ink-900 shadow-pop">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
           <CheckCircle2 size={26} />
         </div>
@@ -136,7 +136,7 @@ export const BookingForm: React.FC<{ tone?: 'light' | 'dark' }> = ({ tone = 'lig
     <form
       onSubmit={submit}
       noValidate
-      className={`rounded-3xl p-6 sm:p-8 ${dark ? 'bg-white text-ink-900 shadow-pop' : 'border border-ink-200 bg-white shadow-card'}`}
+      className={`rounded-3xl p-6 sm:p-8 ${dark ? 'bg-surface text-ink-900 shadow-pop' : 'border border-ink-200 bg-surface shadow-card'}`}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="First name" error={errors.firstName}>
