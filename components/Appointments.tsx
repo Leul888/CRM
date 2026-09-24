@@ -2,13 +2,15 @@ import React, { useMemo, useState } from 'react';
 import { BellRing, CalendarPlus, ChevronLeft, ChevronRight, Copy, Download, Sparkles } from 'lucide-react';
 import type { Appointment, AppointmentStatus, ServiceType, User } from '../types';
 import { Badge, Button, Card, DetailRow, EmptyState, Field, Input, Modal, PageHeader, Select, Table, Tabs, Textarea, copyToClipboard, run, useStore } from './SharedComponents';
-import { can, scopeAppointments, scopeLeads } from '../services/permissions';
+import { can, estimatorPool, scopeAppointments, scopeLeads } from '../services/permissions';
 import { assignEstimatorForService } from '../services/assignmentService';
 import { buildIcs } from '../services/calendarService';
 import { dateTime, downloadFile, fromLocalInput, humanize, time, toLocalInput } from '../services/format';
 import { serviceLabel } from '../services/catalog';
 
-const STATUSES: AppointmentStatus[] = ['REQUESTED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED'];
+const STATUSES: AppointmentStatus[] = ['REQUESTED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+export const OPEN_VISIT: AppointmentStatus[] = ['REQUESTED', 'SCHEDULED', 'CONFIRMED'];
+const visitLabel = (st: AppointmentStatus) => (st === 'NO_SHOW' ? 'No-show' : humanize(st));
 
 export const AppointmentForm: React.FC<{ currentUser: User; initial?: Partial<Appointment>; onClose: () => void }> = ({ currentUser, initial, onClose }) => {
   const s = useStore();
@@ -33,7 +35,9 @@ export const AppointmentForm: React.FC<{ currentUser: User; initial?: Partial<Ap
   });
   const [error, setError] = useState('');
 
-  const eligible = s.usersByRole('ESTIMATOR').filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const pool = estimatorPool(s.state.users);
+  const capable = pool.filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const eligible = capable.length ? capable : pool;
   const suggestion = useMemo(
     () => (d.start ? assignEstimatorForService(s.state.users, s.state.appointments.filter((a) => a.id !== d.id), d.serviceType, fromLocalInput(d.start), d.duration, s.isSpecialist(d.serviceType)) : null),
     [d.start, d.serviceType, d.duration, d.id, s.state.users, s.state.appointments],
@@ -43,7 +47,7 @@ export const AppointmentForm: React.FC<{ currentUser: User; initial?: Partial<Ap
     if (!d.estimatorId || !d.start) return null;
     const st = new Date(d.start).getTime();
     const en = st + d.duration * 60000;
-    return s.state.appointments.find((a) => a.id !== d.id && a.estimatorId === d.estimatorId && a.status !== 'CANCELLED' && new Date(a.startTime).getTime() < en && new Date(a.endTime).getTime() > st);
+    return s.state.appointments.find((a) => a.id !== d.id && a.estimatorId === d.estimatorId && !['CANCELLED', 'NO_SHOW'].includes(a.status) && new Date(a.startTime).getTime() < en && new Date(a.endTime).getTime() > st);
   }, [d, s.state.appointments]);
 
   const save = async () => {
@@ -88,7 +92,7 @@ export const AppointmentForm: React.FC<{ currentUser: User; initial?: Partial<Ap
           />
         </Field>
         <Field label="Service"><Select value={d.serviceType} onChange={(e) => setD((x) => ({ ...x, serviceType: e.target.value as ServiceType }))} options={s.services.map((x) => ({ value: x.key, label: x.label }))} /></Field>
-        <Field label="Status"><Select value={d.status} onChange={(e) => setD((x) => ({ ...x, status: e.target.value as AppointmentStatus }))} options={STATUSES.map((v) => ({ value: v, label: humanize(v) }))} /></Field>
+        <Field label="Status"><Select value={d.status} onChange={(e) => setD((x) => ({ ...x, status: e.target.value as AppointmentStatus }))} options={STATUSES.map((v) => ({ value: v, label: visitLabel(v) }))} /></Field>
         <Field label="Start"><Input type="datetime-local" value={d.start} onChange={(e) => setD((x) => ({ ...x, start: e.target.value }))} /></Field>
         <Field label="Duration">
           <Select value={String(d.duration)} onChange={(e) => setD((x) => ({ ...x, duration: Number(e.target.value) }))} options={[30, 45, 60, 90, 120].map((m) => ({ value: String(m), label: `${m} minutes` }))} />
@@ -115,7 +119,7 @@ const AppointmentDetail: React.FC<{ appt: Appointment; currentUser: User; onClos
   const est = s.state.users.find((u) => u.id === appt.estimatorId);
   const manage = can(currentUser, 'appointment:manage');
   const setStatus = (st: AppointmentStatus) => {
-    void run(s.setAppointmentStatus(appt.id, st), `Appointment ${humanize(st).toLowerCase()}`);
+    void run(s.setAppointmentStatus(appt.id, st), `Visit marked ${visitLabel(st).toLowerCase()}`);
   };
   const ics = () =>
     downloadFile(`visit-${appt.id}.ics`, buildIcs({ uid: appt.id, title: `Estimate: ${lead?.name} (${serviceLabel(appt.serviceType)})`, description: appt.notes || '', location: lead?.address || '', start: appt.startTime, end: appt.endTime }), 'text/calendar');
@@ -129,13 +133,13 @@ const AppointmentDetail: React.FC<{ appt: Appointment; currentUser: User; onClos
         manage ? (
           <>
             <Button variant="ghost" icon={<Download size={15} />} onClick={ics}>.ics</Button>
-            <Button variant="outline" icon={<BellRing size={15} />} disabled={['CANCELLED', 'COMPLETED'].includes(appt.status)} onClick={async () => { const r = await s.sendAppointmentReminder(appt.id); s.toast('error' in r ? r.error! : 'Reminders sent to client and estimator', 'error' in r ? 'error' : 'success'); }}>Send reminder</Button>
+            <Button variant="outline" icon={<BellRing size={15} />} disabled={!OPEN_VISIT.includes(appt.status)} onClick={async () => { const r = await s.sendAppointmentReminder(appt.id); s.toast('error' in r ? r.error! : 'Reminders sent to client and estimator', 'error' in r ? 'error' : 'success'); }}>Send reminder</Button>
             <Button variant="outline" onClick={onEdit}>Edit</Button>
           </>
         ) : undefined
       }
     >
-      <div className="flex flex-wrap gap-2"><Badge value={appt.status} /><Badge value={appt.reminderStatus} label={`Reminder: ${humanize(appt.reminderStatus)}`} /></div>
+      <div className="flex flex-wrap gap-2"><Badge value={appt.status} label={visitLabel(appt.status)} /><Badge value={appt.reminderStatus} label={`Reminder: ${humanize(appt.reminderStatus)}`} /></div>
       <div className="mt-4 divide-y divide-ink-100 rounded-2xl border border-ink-200 px-4">
         <DetailRow label="Estimator">{est?.name}</DetailRow>
         <DetailRow label="Address">{lead?.address}</DetailRow>
@@ -147,8 +151,10 @@ const AppointmentDetail: React.FC<{ appt: Appointment; currentUser: User; onClos
         <div className="mt-5 flex flex-wrap gap-2">
           {appt.status === 'REQUESTED' && <Button size="sm" onClick={() => setStatus('SCHEDULED')}>Accept request</Button>}
           {['REQUESTED', 'SCHEDULED'].includes(appt.status) && <Button size="sm" variant="secondary" onClick={() => setStatus('CONFIRMED')}>Mark confirmed</Button>}
-          {!['COMPLETED', 'CANCELLED'].includes(appt.status) && <Button size="sm" variant="secondary" onClick={() => setStatus('COMPLETED')}>Mark completed</Button>}
-          {!['COMPLETED', 'CANCELLED'].includes(appt.status) && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => setStatus('CANCELLED')}>Cancel visit</Button>}
+          {OPEN_VISIT.includes(appt.status) && <Button size="sm" variant="secondary" onClick={() => setStatus('COMPLETED')}>Visit completed</Button>}
+          {OPEN_VISIT.includes(appt.status) && <Button size="sm" variant="ghost" onClick={() => setStatus('NO_SHOW')}>No-show</Button>}
+          {OPEN_VISIT.includes(appt.status) && <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => setStatus('CANCELLED')}>Cancel visit</Button>}
+          {!OPEN_VISIT.includes(appt.status) && <Button size="sm" variant="ghost" onClick={() => setStatus('SCHEDULED')}>Reopen visit</Button>}
           <Button size="sm" variant="ghost" onClick={() => (window.location.hash = `leads/${appt.leadId}`)}>Open lead</Button>
         </div>
       )}
@@ -215,7 +221,7 @@ const Appointments: React.FC<{ currentUser: User }> = ({ currentUser }) => {
           )}
         </div>
         {currentUser.role !== 'ESTIMATOR' && (
-          <Select className="md:w-60" value={estimator} onChange={(e) => setEstimator(e.target.value)} placeholder="All estimators" options={s.usersByRole('ESTIMATOR').map((u) => ({ value: u.id, label: u.name }))} />
+          <Select className="md:w-60" value={estimator} onChange={(e) => setEstimator(e.target.value)} placeholder="All estimators" options={estimatorPool(s.state.users).map((u) => ({ value: u.id, label: u.name }))} />
         )}
       </div>
 
@@ -280,7 +286,7 @@ const Appointments: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                           <button
                             key={a.id}
                             onClick={() => setDetail(a.id)}
-                            className={`absolute overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-left text-[11px] transition hover:shadow-card ${a.status === 'CANCELLED' ? 'opacity-40 line-through' : ''}`}
+                            className={`absolute overflow-hidden rounded-lg border-l-[3px] px-2 py-1 text-left text-[11px] transition hover:shadow-card ${['CANCELLED', 'NO_SHOW'].includes(a.status) ? 'opacity-40 line-through' : ''}`}
                             style={{ top: top + 2, height, borderColor: c, background: `${c}14`, left: `calc(${((lanes.get(a.id) || 0) / laneCount) * 100}% + 3px)`, width: `calc(${100 / laneCount}% - 6px)` }}
                           >
                             <div className="truncate font-semibold text-ink-900">{s.leadById(a.leadId)?.name}</div>
@@ -330,3 +336,30 @@ const Appointments: React.FC<{ currentUser: User }> = ({ currentUser }) => {
 };
 
 export default Appointments;
+
+/**
+ * Record how a site visit went without leaving the page (estimate editor, lead drawer).
+ * Nothing downstream waits on this: estimates can be written before, during or after a visit.
+ */
+export const VisitOutcome: React.FC<{ appt: Appointment; currentUser: User; compact?: boolean }> = ({ appt, currentUser, compact }) => {
+  const s = useStore();
+  const manage = can(currentUser, 'appointment:manage');
+  const open = OPEN_VISIT.includes(appt.status);
+  const set = (st: AppointmentStatus) => void run(s.setAppointmentStatus(appt.id, st), `Visit marked ${visitLabel(st).toLowerCase()}`);
+  return (
+    <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm ${open ? 'border-amber-200 bg-amber-50/60' : 'border-ink-200'}`}>
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-semibold">Site visit</span> · {dateTime(appt.startTime)}{compact ? '' : ` · ${s.userName(appt.estimatorId)}`}
+      </span>
+      <Badge value={appt.status} label={visitLabel(appt.status)} />
+      {manage && open && (
+        <span className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="secondary" onClick={() => set('COMPLETED')}>Completed</Button>
+          <Button size="sm" variant="ghost" onClick={() => set('NO_SHOW')}>No-show</Button>
+          <Button size="sm" variant="ghost" className="text-rose-600" onClick={() => set('CANCELLED')}>Cancelled</Button>
+        </span>
+      )}
+      {manage && !open && <button className="text-xs font-semibold text-ink-500 hover:underline" onClick={() => set('SCHEDULED')}>Reopen</button>}
+    </div>
+  );
+};

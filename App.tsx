@@ -3,7 +3,6 @@ import {
   Bell,
   CalendarDays,
   ClipboardList,
-  ExternalLink,
   FileSignature,
   Grid2x2,
   LogOut,
@@ -21,9 +20,10 @@ import {
 import type { User } from './types';
 import { store } from './store';
 import { AppPage, canAccessPage, isAdminRole, scopeEstimates, scopeLeads } from './services/permissions';
-import { Avatar, Logo, Toaster, useStore } from './components/SharedComponents';
+import { Avatar, Logo, ThemeToggle, Toaster, useStore } from './components/SharedComponents';
 import Landing from './pages/Landing';
-import { ForcePasswordChange, ForgotPassword, Login, PublicBooking, PublicEstimateApproval, ResetPassword, Setup } from './pages/PublicPages';
+import Pricing from './pages/Pricing';
+import { AcceptInvite, ForcePasswordChange, ForgotPassword, PublicPayInvoice, Login, PublicBooking, PublicEstimateApproval, ResetPassword, Setup } from './pages/PublicPages';
 import Dashboard from './components/Dashboard';
 import Leads from './components/Leads';
 import Appointments from './components/Appointments';
@@ -82,12 +82,12 @@ const NotificationsMenu: React.FC = () => {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen(!open)} className="relative flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-600 transition hover:text-ink-950" aria-label="Notifications">
+      <button onClick={() => setOpen(!open)} className="relative flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 bg-surface text-ink-600 transition hover:text-ink-950" aria-label="Notifications">
         <Bell size={17} />
         {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">{unread}</span>}
       </button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-[360px] max-w-[calc(100vw-2rem)] animate-fade-up overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-pop">
+        <div className="absolute right-0 z-50 mt-2 w-[360px] max-w-[calc(100vw-2rem)] animate-fade-up overflow-hidden rounded-2xl border border-ink-200 bg-surface shadow-pop">
           <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
             <span className="font-display font-semibold">Notifications</span>
             {unread > 0 && (
@@ -160,10 +160,10 @@ const GlobalSearch: React.FC = () => {
         onFocus={() => setFocus(true)}
         onBlur={() => setTimeout(() => setFocus(false), 150)}
         placeholder="Search leads, estimates, invoices…"
-        className="field !rounded-full !bg-ink-50 pl-10 hover:!bg-white focus:!bg-white"
+        className="field !rounded-full pl-10"
       />
       {focus && results.length > 0 && (
-        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-pop">
+        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-ink-200 bg-surface shadow-pop">
           {results.map((r) => (
             <button
               key={r.key}
@@ -218,19 +218,19 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
   const sidebar = (
     <div className="flex h-full flex-col">
       <a href={`#${homeFor(user)}`} className="px-2"><Logo /></a>
-      <div className="mx-2 mt-5 flex flex-wrap items-center gap-1.5">
-        <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ring-1 ring-inset ${admin ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-sky-50 text-sky-700 ring-sky-200'}`}>
+      <div className="mx-2 mt-4 flex flex-wrap items-center gap-1.5">
+        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-ink-200 px-2.5 py-0.5 text-[11px] font-semibold text-ink-700">
           {admin ? <ShieldCheck size={12} /> : <UserCircle2 size={12} />} {admin ? 'Admin' : 'User'}
         </span>
         <span className="whitespace-nowrap text-[11px] font-medium text-ink-500">{humanize(user.role)}</span>
       </div>
-      <nav className="mt-6 flex-1 space-y-6 overflow-y-auto">
+      <nav className="mt-8 flex-1 space-y-7 overflow-y-auto">
         {groups.map((g) => {
           const items = accessible.filter((n) => n.group === g);
           if (!items.length) return null;
           return (
             <div key={g}>
-              <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-ink-400">{g}</div>
+              <div className="mb-2 px-3 text-xs font-medium text-ink-400">{g}</div>
               <div className="space-y-0.5">
                 {items.map((n) => {
                   const Icon = n.icon;
@@ -239,9 +239,9 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
                     <a
                       key={n.id}
                       href={`#${n.id}`}
-                      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${active ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-ink-50 hover:text-ink-950'}`}
+                      className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${active ? 'bg-ink-100 font-semibold text-ink-950' : 'font-medium text-ink-600 hover:bg-ink-50 hover:text-ink-950'}`}
                     >
-                      <Icon size={18} className={active ? 'text-brand-600' : 'text-ink-400 group-hover:text-ink-700'} />
+                      <Icon size={18} className={active ? 'text-ink-950' : 'text-ink-400 group-hover:text-ink-700'} />
                       {n.label}
                     </a>
                   );
@@ -251,17 +251,8 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
           );
         })}
       </nav>
-      {admin && (
-        <div className="mt-4 rounded-2xl border border-brand-100 bg-brand-50/60 p-4">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-600">Public links</div>
-          <div className="mt-2.5 space-y-1.5 text-sm">
-            <a href="#home" target="_blank" rel="noreferrer" className="flex items-center justify-between font-medium text-ink-700 hover:text-brand-700">Website <ExternalLink size={13} className="text-brand-400" /></a>
-            <a href="#book" target="_blank" rel="noreferrer" className="flex items-center justify-between font-medium text-ink-700 hover:text-brand-700">Booking page <ExternalLink size={13} className="text-brand-400" /></a>
-          </div>
-        </div>
-      )}
-      <div className="mt-3 flex items-center gap-2 rounded-2xl border border-ink-200 p-2">
-        <a href="#account" className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-ink-50 ${page === 'account' ? 'bg-brand-50' : ''}`}>
+      <div className="mt-3 flex items-center gap-2 border-t border-ink-200 pt-3">
+        <a href="#account" className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1.5 transition hover:bg-ink-50 ${page === 'account' ? 'bg-ink-100' : ''}`}>
           <Avatar name={user.name} color={user.calendarColor} size="sm" />
           <span className="min-w-0">
             <span className="block truncate text-xs font-semibold text-ink-900">{user.name}</span>
@@ -276,12 +267,12 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
   );
 
   return (
-    <div className="min-h-screen bg-ink-50/60">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] border-r border-ink-200/70 bg-white px-4 py-6 lg:block">{sidebar}</aside>
+    <div className="min-h-screen bg-surface">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] border-r border-ink-200 bg-surface px-4 py-6 lg:block">{sidebar}</aside>
       {menuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-ink-950/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-fade-up bg-white px-4 py-6 shadow-pop">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-fade-up bg-surface px-4 py-6 shadow-pop">
             <button onClick={() => setMenuOpen(false)} className="absolute right-3 top-5 flex h-9 w-9 items-center justify-center rounded-full hover:bg-ink-100" aria-label="Close menu"><X size={18} /></button>
             {sidebar}
           </aside>
@@ -289,18 +280,19 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
       )}
 
       <div className="lg:pl-[264px]">
-        <header className="no-print sticky top-0 z-20 border-b border-ink-200/70 bg-white/85 backdrop-blur-xl">
+        <header className="no-print sticky top-0 z-20 border-b border-ink-200 bg-surface/95 backdrop-blur">
           <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
             <button onClick={() => setMenuOpen(true)} className="flex h-10 w-10 items-center justify-center rounded-full border border-ink-200 lg:hidden" aria-label="Open menu"><Menu size={18} /></button>
             <GlobalSearch />
             <div className="ml-auto flex items-center gap-2">
               {admin && page !== 'admin' && (
-                <a href="#admin" className="hidden items-center gap-1.5 rounded-full bg-brand-50 px-3.5 py-2 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200 hover:bg-brand-100 sm:inline-flex">
+                <a href="#admin" className="hidden items-center gap-1.5 rounded-full border border-ink-200 px-3.5 py-2 text-xs font-semibold text-ink-800 hover:border-ink-400 sm:inline-flex">
                   <ShieldCheck size={14} /> Admin console
                 </a>
               )}
+              <ThemeToggle />
               <NotificationsMenu />
-              <a href="#account" className="flex items-center gap-2.5 rounded-full border border-ink-200 bg-white py-1 pl-1 pr-3 hover:border-ink-300" title="My account">
+              <a href="#account" className="flex items-center gap-2.5 rounded-full border border-ink-200 bg-surface py-1 pl-1 pr-3 hover:border-ink-300" title="My account">
                 <Avatar name={user.name} color={user.calendarColor} size="sm" />
                 <span className="hidden leading-tight sm:block">
                   <span className="block text-xs font-semibold text-ink-900">{user.name}</span>
@@ -310,7 +302,7 @@ const AppShell: React.FC<{ page: AppPage; param?: string }> = ({ page, param }) 
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+        <main className="mx-auto max-w-[1280px] px-4 py-10 sm:px-6 lg:px-10 lg:py-14">
           <BillingBanner admin={admin} />
           {renderPage()}
         </main>
@@ -341,7 +333,7 @@ const BillingBanner: React.FC<{ admin: boolean }> = ({ admin }) => {
 };
 
 const Splash: React.FC = () => (
-  <div className="flex min-h-screen items-center justify-center bg-white">
+  <div className="flex min-h-screen items-center justify-center bg-surface">
     <div className="flex flex-col items-center gap-4">
       <Logo compact />
       <div className="h-1 w-24 overflow-hidden rounded-full bg-ink-100"><div className="h-full w-1/2 animate-pulse rounded-full bg-brand-500" /></div>
@@ -398,8 +390,11 @@ const App: React.FC = () => {
   let content: React.ReactNode;
   if (!route || head === 'home' || head === 'cta-form') content = <Landing />;
   else if (head === 'book') content = <PublicBooking />;
+  else if (head === 'pricing') content = <Pricing thanks={param === 'thanks'} />;
   else if (head === 'approve' && param) content = <PublicEstimateApproval token={param} />;
   else if (head === 'reset' && param) content = <ResetPassword token={param} />;
+  else if (head === 'invite' && param) content = <AcceptInvite token={param} />;
+  else if (head === 'pay' && param) content = <PublicPayInvoice key={route} token={param} done={route.split('/')[2] === 'done'} />;
   else if (s.phase === 'booting') content = <Splash />;
   else if (s.config?.setupRequired) content = <Setup />;
   else if (head === 'forgot') content = s.isAuthenticated ? <Redirect to={homeFor(s.currentUser)} /> : <ForgotPassword />;

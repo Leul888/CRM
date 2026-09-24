@@ -11,6 +11,7 @@ A production-ready CRM for a remodeling contractor. It comes with a public websi
 | Website `#home`, `#book` | Public | Lead-capture form (`#cta-form`) creates a lead, smart-assigns an estimator, books the visit and sends confirmations |
 | E-sign `#approve/<token>` | Clients | Review line items, type-to-sign or decline. Signature records name, time, IP and device. Approval auto-creates the invoice |
 | Login `#login` | Staff | Company-branded, "keep me signed in", forgot/reset password, forced change of temporary passwords |
+| Invites `#invite/<token>` | New staff | One-time link (7 days) where a new user picks their own password and is signed straight in. No public sign-up: only admins can add people |
 | Admin console `#admin` | Owner, Manager, Office manager | **Branding & website** (logo, brand color, homepage text, FAQ) · **Services** (your own catalog; mark specialist services) · **Billing** (Stripe subscription, card, invoices) · **Overview** (KPIs, team, activity, system health) · **Users & access** (add users, roles, temporary passwords, reset password, deactivate, sign out sessions) · **Company** (name and details used on the login page, website and documents; tax and terms defaults) · **Messages** (every email/SMS with delivery status) · **Audit log** (sign-ins, admin changes, data changes, public events) · **System & data** (integration status, backups, restore) |
 | User workspace | Everyone | Dashboard, leads (table + drag-and-drop board), calendar, estimates, work orders (checklists + photo/PDF uploads), invoices and payments, inventory, products and team, all scoped by role |
 | My account `#account` | Everyone | Profile, change password, sign out other devices |
@@ -68,8 +69,13 @@ Copy `.env.example` to `.env` (or set real environment variables). Key settings:
 | `COOKIE_SECURE=true` | Required behind HTTPS |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `COMPANY_NAME` | Optional: create the owner on first boot (otherwise use in-browser setup) |
 | `SMTP_*` | Real email (Resend, Postmark, SendGrid, Mailgun, Google Workspace, any SMTP) |
-| `TWILIO_*` | Real SMS reminders |
-| `SEED_DEMO` | Sample data for evaluation only. Keep `false` for a real company |
+| `TWILIO_*` | Optional real SMS: appointment reminders and crew alerts |
+| `SALES_PAGE=true` | **Your sales site only.** Turns on the contractor pricing page at `/#pricing` and Admin → Sign-ups. Never set it on a client's workspace |
+| `SALES_STRIPE_SECRET_KEY` / `SALES_STRIPE_WEBHOOK_SECRET` / `SALES_SETUP_FEE` / `PRODUCT_NAME` | Your Stripe account for plan sign-ups (webhook `/api/sales/webhook`, event `checkout.session.completed`), setup fee (default 750, 0 to hide) and product name (default ConstructFlow) |
+| `NTFY_URL` | Optional. Server for phone alerts (default `https://ntfy.sh`). Only needed if you self-host ntfy |
+| `SEED_DEMO` | Sample data for evaluation only. Keep `false` for a real company. Turning it off on a disk that holds the demo removes the demo data and demo logins on the next start (a JSON backup is saved in `DATA_DIR` first), then creates the owner from `ADMIN_EMAIL` or shows first-time setup |
+| `COMPANY_NAME` / `BRAND_COLOR` | Name (and optional hex color) for a fresh workspace. With `SEED_DEMO=true` they are re-applied on every restart, so a free demo always shows your chosen name |
+| `INVOICE_STRIPE_SECRET_KEY` / `INVOICE_STRIPE_WEBHOOK_SECRET` | Online invoice payments (card + US bank/ACH) into the **client's own** Stripe account. Webhook: `/api/payments/webhook` |
 | `STRIPE_SECRET_KEY` / `STRIPE_PRICE_ID` / `STRIPE_WEBHOOK_SECRET` | Subscription billing for this client (your Stripe account). Leave empty to turn billing off |
 | `TRIAL_DAYS` / `BILLING_GRACE_DAYS` / `BILLING_OVERRIDE` | Trial length, grace period after a failed payment, `active` to comp a client |
 
@@ -109,6 +115,10 @@ SQLite comfortably serves a single company with dozens of concurrent users. If y
 
 ## Customizing per client (no code)
 
+- **Company name**: Admin console → **Rename company** (top right). Updates the logo text, login page, website, documents and emails instantly.
+- **New-lead alerts**: each website inquiry sends the customer a confirmation email and pops up a free phone notification for the owner (Admin → Company → Phone alerts, using the ntfy app). With phone alerts off, the company email gets the inquiry instead.
+- **Night mode**: everyone can switch with the moon/sun button in the header (remembered per browser; follows the device setting by default).
+
 - **Services**: Admin → Services. Add, rename, reorder or retire services. *Specialist* services only go to specialist-qualified estimators.
 - **Brand**: Admin → Branding & website. Upload a logo, pick a brand color (applies across app, login and website) and edit the homepage headline, booking text and FAQ.
 - **Existing customers**: Leads → Import (CSV from Excel, Google Sheets or another CRM). Columns are auto-matched, and duplicates by email or name + phone are skipped.
@@ -116,5 +126,5 @@ SQLite comfortably serves a single company with dozens of concurrent users. If y
 ## Known limits
 
 - Google Calendar two-way sync isn't connected. Visits export as `.ics` files, and calendar events are recorded in Messages.
-- Online card payments (Stripe) aren't built in. Payments are recorded manually by method.
+- Online payments need the client's own Stripe account (`INVOICE_STRIPE_*`). Without it, payments are recorded manually by method.
 - E-sign captures name, time, IP and user agent. Have counsel confirm it meets your ESIGN/UETA needs.

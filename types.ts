@@ -44,7 +44,7 @@ export type LeadStatus =
 
 export type LeadSource = 'WEBSITE' | 'CALL_CENTER' | 'SOCIAL_MEDIA' | 'REFERRAL' | 'MANUAL';
 
-export type AppointmentStatus = 'REQUESTED' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
+export type AppointmentStatus = 'REQUESTED' | 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
 export type ReminderStatus = 'PENDING' | 'QUEUED' | 'SENT' | 'FAILED';
 
@@ -197,6 +197,10 @@ export interface Invoice {
   dueDate: string;
   createdAt: string;
   payments?: Payment[];
+  /** Secret for the public pay-online page (#pay/<token>). */
+  payToken?: string;
+  /** A bank (ACH) payment started online and waiting for the bank to settle. */
+  onlinePending?: { sessionId: string; amount: number; startedAt: string };
 }
 
 export interface WorkOrder {
@@ -252,7 +256,9 @@ export interface Notification {
 
 export interface OutboundMessage {
   id: string;
-  channel: 'EMAIL' | 'SMS' | 'CALENDAR' | 'INTERNAL';
+  channel: 'EMAIL' | 'SMS' | 'CALENDAR' | 'INTERNAL' | 'PUSH';
+  /** Push only: link opened when the notification is tapped. */
+  link?: string;
   to: string;
   subject?: string;
   body: string;
@@ -266,6 +272,8 @@ export interface CompanySettings {
   ownerName: string;
   supportEmail: string;
   supportPhone: string;
+  /** Private ntfy topic: the owner's phone gets a push notification for every website inquiry. Admin-only. */
+  ntfyTopic?: string;
   address?: string;
   defaultTaxRate?: number;
   estimateValidityDays?: number;

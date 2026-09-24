@@ -19,7 +19,7 @@ const Team: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const list = s.state.users.filter((u) => u.active && GROUPS[tab].includes(u.role) && (!q || `${u.name} ${u.email}`.toLowerCase().includes(q.toLowerCase())));
 
   const workload = (u: User) => {
-    if (u.role === 'ESTIMATOR') return `${s.state.appointments.filter((a) => a.estimatorId === u.id && new Date(a.startTime) > new Date() && a.status !== 'CANCELLED').length} upcoming visits`;
+    if (u.role === 'ESTIMATOR') return `${s.state.appointments.filter((a) => a.estimatorId === u.id && new Date(a.startTime) > new Date() && !['CANCELLED', 'NO_SHOW'].includes(a.status)).length} upcoming visits`;
     if (u.role === 'SALES_REP') return `${s.state.leads.filter((l) => l.assignedSalesRepId === u.id && !['PAID', 'LOST'].includes(l.status)).length} open leads`;
     if (['WORKER', 'SUBCONTRACTOR'].includes(u.role)) return `${s.state.workOrders.filter((w) => w.assignedWorkerId === u.id && !['COMPLETED', 'CANCELLED'].includes(w.status)).length} active jobs`;
     return isAdminRole(u.role) ? 'Administrator' : 'Dispatch';

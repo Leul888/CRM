@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { CircleDollarSign, Printer, Receipt, Send, XCircle } from 'lucide-react';
+import { CircleDollarSign, Clock, Link2, Printer, Receipt, Send, XCircle } from 'lucide-react';
 import type { Invoice, PaymentMethod, User } from '../types';
-import { Badge, Button, DetailRow, Drawer, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, StatCard, Table, Tabs, run, useStore } from './SharedComponents';
+import { Badge, Button, DetailRow, Drawer, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, StatCard, Table, Tabs, copyToClipboard, run, useStore } from './SharedComponents';
 import { scopeInvoices } from '../services/permissions';
 import { date, dateTime, humanize, money, moneyShort } from '../services/format';
 
@@ -92,6 +92,18 @@ const InvoiceDrawer: React.FC<{ invoice: Invoice; onClose: () => void }> = ({ in
           <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4"><div className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-600">Balance due</div><div className="font-display text-3xl font-bold text-brand-800">{money(invoice.balanceDue)}</div></div>
           <div className="rounded-2xl bg-ink-50 p-4"><div className="text-xs uppercase tracking-[0.14em] text-ink-500">Paid</div><div className="font-display text-3xl font-bold">{money(invoice.amountPaid)}</div></div>
         </div>
+        {invoice.onlinePending && (
+          <div className="mt-4 flex items-start gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <Clock size={16} className="mt-0.5 shrink-0" />
+            <span>Bank payment of <strong>{money(invoice.onlinePending.amount)}</strong> started {dateTime(invoice.onlinePending.startedAt)}. It's recorded automatically when it clears (about 4 business days).</span>
+          </div>
+        )}
+        {open && s.config?.onlinePayments && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-ink-200 px-4 py-3 text-sm">
+            <span className="text-ink-600">Customer pays online by card or bank. The link is in the invoice email.</span>
+            <Button size="sm" variant="secondary" icon={<Link2 size={14} />} onClick={async () => { const link = await s.payLink(invoice.id); if (typeof link === 'string' && link) void copyToClipboard(link, 'Payment link copied'); }}>Copy payment link</Button>
+          </div>
+        )}
         <div className="mt-4 divide-y divide-ink-100 rounded-2xl border border-ink-200 px-4">
           <DetailRow label="Issued">{date(invoice.createdAt)}</DetailRow>
           <DetailRow label="Due">{date(invoice.dueDate)}</DetailRow>
@@ -119,7 +131,7 @@ const InvoiceDrawer: React.FC<{ invoice: Invoice; onClose: () => void }> = ({ in
             <div className="space-y-2">
               {(invoice.payments || []).map((p) => (
                 <div key={p.id} className="flex items-center justify-between rounded-xl bg-emerald-50/70 px-4 py-2.5 text-sm">
-                  <span><span className="font-semibold">{money(p.amount)}</span> <span className="text-ink-500">· {humanize(p.method)}{p.reference ? ` · ${p.reference}` : ''}</span></span>
+                  <span><span className="font-semibold">{money(p.amount)}</span> <span className="text-ink-500">· {humanize(p.method)}{p.reference?.startsWith('Stripe ') ? ' · paid online' : p.reference ? ` · ${p.reference}` : ''}</span></span>
                   <span className="text-xs text-ink-500">{dateTime(p.receivedAt)}</span>
                 </div>
               ))}
