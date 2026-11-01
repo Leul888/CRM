@@ -6,12 +6,15 @@ import { fileURLToPath } from 'node:url';
 import type { CRMState, Role, ServiceType, User } from '../types';
 import { CRMEngine } from '../core/engine';
 import { buildEmptyState, buildSeedState, uid } from '../core/seed';
+import { starterProducts } from '../core/starterCatalog';
 import { can, isAdminRole } from '../services/permissions';
 import { SERVICE_TYPES, isEmail } from '../services/format';
-import { DB_PATH, audit, db, loadState, pruneAudit, saveState, wipeState } from './db';
+import { DATA_DIR, DB_PATH, audit, db, getMeta, loadState, pruneAudit, saveState, setMeta, wipeState } from './db';
 import {
   activeSessionCount,
+  INVITE_TTL_MS,
   burnTime,
+  clearAllCredentials,
   consumeResetToken,
   createResetToken,
   createSession,
@@ -21,6 +24,7 @@ import {
   getCredential,
   getCredentialByEmail,
   passwordProblem,
+  peekResetToken,
   pruneSessions,
   rateLimited,
   revokeUserSessions,
@@ -30,7 +34,10 @@ import {
   verifyPassword,
 } from './auth';
 import { ACTION_GUARDS, runAction, scopeState } from './actions';
-import { deliver, needsNetwork, providers, sendEmailNow } from './delivery';
+import { NTFY_URL, deliver, needsNetwork, providers, sendEmailNow, sendPushNow } from './delivery';
+import crypto from 'node:crypto';
+import { PLANS, PRODUCT_NAME, SETUP_FEE, createSalesCheckout, createSignup, getSalesSession, getSignup, listSignups, markSignupPaid, parseSalesWebhook, salesCheckoutReady, salesEnabled, setSignupSession, SOURCE as SALES_SOURCE, type Signup } from './sales';
+import { createPaymentCheckout, getCheckoutSession, methodOf, parsePaymentWebhook, paymentMethods, paymentsConfigured, SOURCE } from './payments';
 import { activeServices, serviceDefs, setServiceCatalog, siteContent } from '../services/catalog';
 import { billingConfigured, billingEnforced, billingStatus, confirmCheckout, createCheckout, createPortal, handleWebhook, instanceId, syncBilling } from './billing';
 
@@ -43,12 +50,17 @@ const VERSION = '2.0.0';
 // ---------------------------------------------------------------- state bootstrap
 const engine = new CRMEngine(loadState() || ({ users: [] } as unknown as CRMState));
 engine.timeZone = process.env.APP_TIMEZONE || 'America/New_York';
+engine.onlinePayments = paymentsConfigured;
 
 const hasWorkspace = () => engine.state.users?.length > 0;
 
 const seedDemo = () => {
   engine.state = buildSeedState();
+  // Optional branding for demos: survives restarts because it comes from the environment.
+  if (process.env.COMPANY_NAME) engine.state.settings.companyName = process.env.COMPANY_NAME.trim().slice(0, 120);
+  if (/^#[0-9a-f]{6}$/i.test(process.env.BRAND_COLOR || '')) engine.state.settings.brandColor = process.env.BRAND_COLOR!.toLowerCase();
   saveState(engine.state);
+  setMeta('demo_workspace', '1');
   for (const u of engine.state.users) setPassword(u.id, u.email, DEMO_PASSWORD, false);
   console.log(`[boot] demo workspace seeded — every demo user's password is "${DEMO_PASSWORD}"`);
 };
@@ -65,15 +77,47 @@ const newAdmin = (name: string, email: string): User => ({
   calendarColor: '#4B3AB3',
 });
 
+/**
+ * Going live: when SEED_DEMO is turned off on a disk that still holds the demo workspace,
+ * the demo data and its shared-password accounts are cleared (after a JSON backup) so the
+ * real company starts clean via ADMIN_EMAIL or first-time setup.
+ */
+const isDemoWorkspace = () => getMeta('demo_workspace') === '1' || engine.state.users?.some((u) => u.id === 'user_owner');
+if (!DEMO && hasWorkspace() && isDemoWorkspace()) {
+  const file = path.join(DATA_DIR, `demo-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(engine.state));
+  } catch (e) {
+    console.error('[boot] could not write demo backup', e);
+  }
+  wipeState();
+  clearAllCredentials();
+  setMeta('demo_workspace', '0');
+  engine.state = { users: [] } as unknown as CRMState;
+  console.log(`[boot] SEED_DEMO is off: demo workspace removed (backup: ${file})`);
+}
+
 if (!hasWorkspace()) {
   if (DEMO) seedDemo();
   else if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
     const admin = newAdmin(process.env.ADMIN_NAME || 'Administrator', process.env.ADMIN_EMAIL);
     engine.state = buildEmptyState(admin, process.env.COMPANY_NAME || 'Company X');
+    if (/^#[0-9a-f]{6}$/i.test(process.env.BRAND_COLOR || '')) engine.state.settings.brandColor = process.env.BRAND_COLOR!.toLowerCase();
     saveState(engine.state);
     setPassword(admin.id, admin.email, process.env.ADMIN_PASSWORD, true);
     console.log(`[boot] workspace created for ${admin.email} (password change required on first sign-in)`);
   } else console.log('[boot] no workspace yet — open the app to run first-time setup');
+}
+
+// One-time: give an existing real workspace the starter product catalog if its catalog is empty.
+// Flagged so a company that clears its catalog never gets it back on restart.
+if (hasWorkspace() && !isDemoWorkspace() && getMeta('catalog_seeded') !== '1') {
+  if (!engine.state.products?.length) {
+    engine.state.products = starterProducts();
+    saveState(engine.state);
+    console.log('[boot] starter product catalog added');
+  }
+  setMeta('catalog_seeded', '1');
 }
 
 // ---------------------------------------------------------------- persistence + delivery
@@ -106,7 +150,7 @@ const commit = () => {
   if (network.length) {
     void Promise.all(
       network.map(async (m) => {
-        const result = await deliver(m, engine.state.settings.companyName, resolveRecipient);
+        const result = await deliver(m, engine.state.settings.companyName, resolveRecipient, engine.state.settings.supportEmail, engine.state.settings.ntfyTopic);
         setMessageStatus(m.id, result as { status: 'SENT' | 'LOGGED' | 'FAILED'; error?: string });
       }),
     ).then(persist, (e) => console.error('[delivery]', e));
@@ -152,6 +196,31 @@ app.post('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), asy
     console.error('[billing webhook]', e);
     res.status(500).json({ error: 'Webhook failed.' });
   }
+});
+
+// Online invoice payments (the company's own Stripe account). Raw body for signature verification.
+app.post('/api/payments/webhook', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => {
+  const r = parsePaymentWebhook(req.body as Buffer, req.get('stripe-signature'));
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  const ev = r.event;
+  if (ev.kind !== 'ignored') {
+    withActor(req, null, () => {
+      if (ev.kind === 'paid') engine.recordOnlinePayment(ev.invoiceId, ev.sessionId, ev.amount, ev.method);
+      else if (ev.kind === 'processing') engine.markOnlinePending(ev.invoiceId, ev.sessionId, ev.amount);
+      else engine.failOnlinePayment(ev.invoiceId, ev.sessionId);
+    });
+    commit();
+    audit(null, `payments.${ev.kind}`, ev.invoiceId);
+  }
+  res.json({ received: true });
+});
+
+// Contractor sign-ups paid on the sales page (YOUR Stripe account).
+app.post('/api/sales/webhook', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => {
+  const r = parseSalesWebhook(req.body as Buffer, req.get('stripe-signature'));
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  if (r.paid && markSignupPaid(r.paid.signupId, r.paid.sessionId)) announceSignup(r.paid.signupId, true);
+  res.json({ received: true });
 });
 
 app.use('/api', express.json({ limit: '5mb' }));
@@ -224,6 +293,8 @@ app.get('/api/public/config', (_req, res) => {
     brandColor: s.settings.brandColor,
     logoUrl: s.settings.logoDataUrl ? `/api/public/logo?v=${s.settings.logoVersion || '1'}` : null,
     billing: billingStatus(),
+    onlinePayments: paymentsConfigured,
+    salesPage: salesEnabled,
   });
 });
 
@@ -246,6 +317,7 @@ app.post('/api/setup', (req, res) => {
   if (pw) return res.status(400).json({ error: pw });
   const admin = newAdmin(name, email);
   engine.state = buildEmptyState(admin, companyName.trim());
+  setMeta('catalog_seeded', '1');
   persist();
   setPassword(admin.id, admin.email, password, false);
   audit(admin.id, 'workspace.setup', companyName.trim(), ip(req));
@@ -343,6 +415,48 @@ app.post('/api/auth/reset', (req, res) => {
   revokeUserSessions(userId);
   audit(userId, 'auth.password_reset', undefined, ip(req));
   res.json({ ok: true });
+});
+
+// ----- invitations: a one-time link where a new user picks their own password
+const baseUrl = (req: Request) => APP_URL || `${req.protocol}://${req.get('host')}`;
+const issueInvite = (req: Request, inviter: User, target: User) => {
+  const link = `${baseUrl(req)}/#invite/${createResetToken(target.id, INVITE_TTL_MS)}`;
+  let emailed = false;
+  if (providers.email && req.body?.sendInvite !== false) {
+    emailed = true;
+    const company = engine.state.settings.companyName;
+    void sendEmailNow(
+      target.email,
+      `You're invited to ${company}`,
+      `Hi ${target.name},\n\n${inviter.name} invited you to ${company}'s workspace.\n\nSet your password and sign in here (the link works once and expires in 7 days):\n${link}\n\nYour sign-in email is ${target.email}.`,
+      company,
+    ).catch((e) => console.error('[invite]', e));
+  }
+  audit(inviter.id, 'admin.invite_sent', `${target.email}${emailed ? ' (emailed)' : ' (link copied)'}`, ip(req));
+  return { inviteLink: link, emailed };
+};
+
+app.get('/api/auth/invite/:token', (req, res) => {
+  if (rateLimited(`invite-view:${ip(req)}`, 30, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts.' });
+  const userId = peekResetToken(String(req.params.token));
+  const user = userId ? engine.state.users.find((u) => u.id === userId && u.active) : undefined;
+  if (!user) return res.status(404).json({ error: 'This invitation is invalid, already used, or expired. Ask your admin for a new link.' });
+  res.json({ name: user.name, email: user.email, companyName: engine.state.settings.companyName });
+});
+
+app.post('/api/auth/accept-invite', (req, res) => {
+  const { token, password } = req.body || {};
+  if (rateLimited(`invite:${ip(req)}`, 10, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts.' });
+  const problem = passwordProblem(password);
+  if (problem) return res.status(400).json({ error: problem });
+  const peek = typeof token === 'string' ? peekResetToken(token) : null;
+  const user = peek ? engine.state.users.find((u) => u.id === peek && u.active) : undefined;
+  if (!user || consumeResetToken(token) !== user.id) return res.status(400).json({ error: 'This invitation is invalid, already used, or expired. Ask your admin for a new link.' });
+  setPassword(user.id, user.email, password, false);
+  revokeUserSessions(user.id);
+  createSession(req, res, user.id, false);
+  audit(user.id, 'auth.invite_accepted', undefined, ip(req));
+  res.json({ user, mustChangePassword: false });
 });
 
 // ----- account (any signed-in user)
@@ -486,6 +600,167 @@ const approvalView = (tokenValue: string) => {
   };
 };
 
+// ----- public: contractor pricing & sign-up (sales site only)
+const money0 = (n: number) => `$${n.toLocaleString('en-US')}`;
+/** Tell the owner of the sales site: in-app bell, phone alert and email (whatever is set up). */
+function announceSignup(id: string, paid: boolean) {
+  const su = getSignup(id);
+  if (!su) return;
+  const plan = PLANS.find((p) => p.key === su.plan);
+  const title = paid ? `New subscriber: ${su.company}` : `Sign-up request: ${su.company}`;
+  const msg = `${su.name} (${su.email}${su.phone ? `, ${su.phone}` : ''}) ${paid ? 'paid for' : 'asked for'} ${PRODUCT_NAME} ${plan?.name || su.plan}, billed ${su.billing === 'year' ? 'yearly' : 'monthly'}. Set up their workspace.`;
+  withActor({ protocol: 'http', get: () => 'localhost' } as unknown as Request, null, () => engine.notifyInternalAdmins('SYSTEM', title, msg));
+  commit();
+  const topic = engine.state.settings.ntfyTopic;
+  if (topic) void sendPushNow(topic, title, `${su.name} · ${plan?.name || su.plan}`, APP_URL ? `${APP_URL}/#admin/signups` : undefined).catch(() => undefined);
+  const inbox = engine.state.settings.supportEmail;
+  if (inbox && providers.email) void sendEmailNow(inbox, title, `${msg}\n\nCompany: ${su.company}\nContact: ${su.name}\nEmail: ${su.email}\nPhone: ${su.phone || '-'}\nPlan: ${plan?.name || su.plan} (${su.billing === 'year' ? 'yearly' : 'monthly'})`, PRODUCT_NAME).catch(() => undefined);
+  audit(null, paid ? 'sales.signup_paid' : 'sales.signup_requested', `${su.company} · ${su.plan}/${su.billing}`);
+}
+
+app.get('/api/public/plans', (_req, res) => {
+  if (!salesEnabled) return res.status(404).json({ error: 'Not found.' });
+  const s = engine.state.settings;
+  res.json({ product: PRODUCT_NAME, seller: s.companyName, contactEmail: s.supportEmail, contactPhone: s.supportPhone, plans: PLANS, setupFee: SETUP_FEE, checkout: salesCheckoutReady });
+});
+
+app.post('/api/public/signup', async (req, res) => {
+  if (!salesEnabled) return res.status(404).json({ error: 'Not found.' });
+  if (rateLimited(`signup:${ip(req)}`, 8, 60 * 60_000)) return res.status(429).json({ error: 'Too many requests. Please email us instead.' });
+  const b = req.body || {};
+  if (b.website) return res.json({ ok: true, url: null }); // honeypot
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const company = text(b.company, 160);
+  const name = text(b.name, 120);
+  const email = text(b.email, 160).toLowerCase();
+  const phone = text(b.phone, 40);
+  const plan = PLANS.find((p) => p.key === b.plan);
+  const billing = b.billing === 'year' ? 'year' : 'month';
+  const missing = [!company && 'company name', !name && 'your name', !isEmail(email) && 'a valid email', !plan && 'a plan'].filter(Boolean);
+  if (missing.length || !plan) return res.status(400).json({ error: `Please add ${missing.join(', ')}.` });
+  if (!salesCheckoutReady) {
+    const id = createSignup({ company, name, email, phone: phone || null, plan: plan.key, billing }, 'requested');
+    announceSignup(id, false);
+    return res.json({ ok: true, url: null });
+  }
+  const id = createSignup({ company, name, email, phone: phone || null, plan: plan.key, billing }, 'started');
+  try {
+    const sess = await createSalesCheckout({ signupId: id, plan, billing, email, company, returnBase: `${baseUrl(req)}/api/public/signup-return?id=${id}` });
+    setSignupSession(id, sess.id);
+    res.json({ ok: true, url: sess.url });
+  } catch (e) {
+    console.error('[sales] checkout', e);
+    res.status(502).json({ error: `Couldn't open checkout: ${e instanceof Error ? e.message : 'unknown error'}` });
+  }
+});
+
+app.get('/api/public/signup-return', async (req, res) => {
+  const su = getSignup(String(req.query.id || ''));
+  if (!su || req.query.cancel) return res.redirect(303, '/#pricing');
+  const sid = String(req.query.session_id || '');
+  try {
+    if (/^cs_[A-Za-z0-9_]+$/.test(sid) && sid === su.session_id) {
+      const sess = await getSalesSession(sid);
+      if (sess.metadata?.source === SALES_SOURCE && sess.metadata.signup_id === su.id && sess.status === 'complete' && sess.payment_status !== 'unpaid') {
+        if (markSignupPaid(su.id, sid)) announceSignup(su.id, true);
+      }
+    }
+  } catch (e) {
+    console.error('[sales] return', e);
+  }
+  res.redirect(303, '/#pricing/thanks');
+});
+
+app.get('/api/admin/signups', requireUser(), requireAdmin, (_req, res) => {
+  res.json({ enabled: salesEnabled, signups: listSignups().map((x: Signup) => ({ ...x, price: (() => { const p = PLANS.find((q) => q.key === x.plan); return p ? money0(x.billing === 'year' ? p.annual : p.monthly) : ''; })() })) });
+});
+
+// ----- public: pay an invoice online
+const invoiceByPayToken = (t: string) => (t.length >= 24 ? engine.state.invoices.find((i) => i.payToken === t && i.status !== 'CANCELLED') : undefined);
+const payView = (t: string) => {
+  const inv = invoiceByPayToken(t);
+  if (!inv) return null;
+  const s = engine.state.settings;
+  return {
+    companyName: s.companyName,
+    supportEmail: s.supportEmail,
+    supportPhone: s.supportPhone,
+    invoiceNumber: inv.invoiceNumber,
+    customerName: inv.customerName,
+    lineItems: inv.lineItems.map((l) => ({ description: l.description, quantity: l.quantity, unit: l.unit, unitPrice: l.unitPrice, total: l.total })),
+    subtotal: inv.subtotal,
+    tax: inv.tax,
+    total: inv.total,
+    amountPaid: inv.amountPaid,
+    balanceDue: inv.balanceDue,
+    dueDate: inv.dueDate,
+    status: inv.status,
+    processing: inv.onlinePending ? { amount: inv.onlinePending.amount, startedAt: inv.onlinePending.startedAt } : null,
+    payEnabled: paymentsConfigured && !isLocked(),
+    methods: paymentMethods,
+  };
+};
+
+/** Ask Stripe how a checkout went and update the invoice. */
+const settleSession = async (req: Request, invoiceId: string, sessionId: string) => {
+  const sess = await getCheckoutSession(sessionId);
+  if (sess.metadata?.source !== SOURCE || sess.metadata?.invoice_id !== invoiceId) throw new Error('This payment does not belong to this invoice.');
+  const amount = (sess.amount_total || 0) / 100;
+  if (sess.payment_status === 'paid') withActor(req, null, () => engine.recordOnlinePayment(invoiceId, sess.id, amount, methodOf(sess)));
+  else if (sess.status === 'complete') withActor(req, null, () => engine.markOnlinePending(invoiceId, sess.id, amount));
+  commit();
+  return sess;
+};
+
+app.get('/api/public/pay/:token', (req, res) => {
+  if (rateLimited(`pay-view:${ip(req)}`, 120, 60 * 60_000)) return res.status(429).json({ error: 'Too many requests.' });
+  const view = payView(String(req.params.token));
+  if (!view) return res.status(404).json({ error: 'This payment link is not valid.' });
+  res.json(view);
+});
+
+app.post('/api/public/pay/:token/checkout', async (req, res) => {
+  if (rateLimited(`pay:${ip(req)}`, 20, 60 * 60_000)) return res.status(429).json({ error: 'Too many requests.' });
+  const t = String(req.params.token);
+  const inv = invoiceByPayToken(t);
+  if (!inv) return res.status(404).json({ error: 'This payment link is not valid.' });
+  if (!paymentsConfigured || isLocked()) return res.status(503).json({ error: 'Online payment is not available right now. Please contact us to pay.' });
+  if (inv.balanceDue <= 0) return res.status(400).json({ error: 'This invoice is already paid in full.' });
+  if (inv.onlinePending) return res.status(400).json({ error: 'A bank payment for this invoice is already processing.' });
+  try {
+    const sess = await createPaymentCheckout({
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      amount: inv.balanceDue,
+      companyName: engine.state.settings.companyName,
+      customerEmail: inv.customerEmail,
+      returnBase: `${baseUrl(req)}/api/public/pay-return?t=${encodeURIComponent(t)}`,
+    });
+    audit(null, 'payments.checkout_started', inv.invoiceNumber, ip(req));
+    res.json({ url: sess.url });
+  } catch (e) {
+    console.error('[payments] checkout', e);
+    res.status(502).json({ error: `Couldn't start the payment: ${e instanceof Error ? e.message : 'unknown error'}` });
+  }
+});
+
+// Stripe sends the customer back here; confirm with Stripe, then show the invoice page.
+app.get('/api/public/pay-return', async (req, res) => {
+  const t = String(req.query.t || '');
+  const inv = invoiceByPayToken(t);
+  const back = (suffix = '') => res.redirect(303, `/#pay/${encodeURIComponent(t)}${suffix}`);
+  if (!inv) return res.redirect(303, '/#home');
+  if (req.query.cancel) return back();
+  const sid = String(req.query.session_id || '');
+  if (!/^cs_[A-Za-z0-9_]+$/.test(sid)) return back();
+  try {
+    await settleSession(req, inv.id, sid);
+  } catch (e) {
+    console.error('[payments] return', e);
+  }
+  back('/done');
+});
+
 app.get('/api/public/approvals/:token', (req, res) => {
   if (rateLimited(`approval-view:${ip(req)}`, 120, 60 * 60_000)) return res.status(429).json({ error: 'Too many requests.' });
   const view = approvalView(String(req.params.token));
@@ -560,26 +835,73 @@ app.post('/api/admin/users', requireUser(), (req, res) => {
   if (!can(r.user, 'team:manage')) return res.status(403).json({ error: 'Only owners and managers can add users.' });
   const v = validateUserInput(r.user, req.body || {});
   if (v.error || !v.user) return res.status(400).json({ error: v.error });
-  const given = req.body?.password;
-  if (given) {
+  const mode: 'invite' | 'temp' | 'set' = req.body?.accessMode === 'temp' || req.body?.accessMode === 'set' ? req.body.accessMode : 'invite';
+  const given = mode === 'set' ? req.body?.password : undefined;
+  if (mode === 'set') {
     const problem = passwordProblem(given);
     if (problem) return res.status(400).json({ error: problem });
   }
-  const tempPassword = given || generateTempPassword();
+  // Invite mode: an unguessable placeholder password nobody knows; the link sets the real one.
+  const tempPassword = mode === 'invite' ? `${generateTempPassword()}${generateTempPassword()}` : given || generateTempPassword();
   engine.state.users = [...engine.state.users, v.user];
   persist();
   setPassword(v.user.id, v.user.email, tempPassword, true);
   audit(r.user.id, 'admin.user_created', `${v.user.email} (${v.user.role})`, ip(req));
+  if (mode === 'invite') {
+    const inv = issueInvite(req, r.user, v.user);
+    return res.json({ user: adminUserView(v.user), ...inv });
+  }
   if (req.body?.sendInvite && providers.email) {
-    const base = APP_URL || `${req.protocol}://${req.get('host')}`;
     void sendEmailNow(
       v.user.email,
       `You've been invited to ${engine.state.settings.companyName}`,
-      `Hi ${v.user.name},\n\n${r.user.name} added you to ${engine.state.settings.companyName}.\nSign in at ${base}/#login with:\n\nEmail: ${v.user.email}\nTemporary password: ${tempPassword}\n\nYou'll choose your own password after signing in.`,
+      `Hi ${v.user.name},\n\n${r.user.name} added you to ${engine.state.settings.companyName}.\nSign in at ${baseUrl(req)}/#login with:\n\nEmail: ${v.user.email}\nTemporary password: ${tempPassword}\n\nYou'll choose your own password after signing in.`,
       engine.state.settings.companyName,
     ).catch((e) => console.error('[invite]', e));
   }
   res.json({ user: adminUserView(v.user), tempPassword: given ? undefined : tempPassword });
+});
+
+// ----- phone alerts for new leads (ntfy)
+const alertsView = () => ({ enabled: !!engine.state.settings.ntfyTopic, topic: engine.state.settings.ntfyTopic || null, server: NTFY_URL });
+app.get('/api/admin/alerts', requireUser(), (req, res) => {
+  if (!can((req as Authed).user, 'settings:manage')) return res.status(403).json({ error: 'Not allowed.' });
+  res.json(alertsView());
+});
+app.post('/api/admin/alerts', requireUser(), (req, res) => {
+  const r = req as Authed;
+  if (!can(r.user, 'settings:manage')) return res.status(403).json({ error: 'Not allowed.' });
+  if (isLocked()) return res.status(402).json({ error: LOCKED_MSG, code: 'BILLING_LOCKED' });
+  const on = req.body?.enabled !== false;
+  // A long random topic name is what keeps the alerts private.
+  engine.state.settings = { ...engine.state.settings, ntfyTopic: on ? `leads-${crypto.randomBytes(15).toString('base64url').replace(/[-_]/g, 'x')}` : undefined };
+  persist();
+  audit(r.user.id, on ? 'admin.alerts_enabled' : 'admin.alerts_disabled', undefined, ip(req));
+  res.json(alertsView());
+});
+app.post('/api/admin/alerts/test', requireUser(), async (req, res) => {
+  const r = req as Authed;
+  if (!can(r.user, 'settings:manage')) return res.status(403).json({ error: 'Not allowed.' });
+  const topic = engine.state.settings.ntfyTopic;
+  if (!topic) return res.status(400).json({ error: 'Turn on phone alerts first.' });
+  if (rateLimited(`alert-test:${r.user.id}`, 10, 60 * 60_000)) return res.status(429).json({ error: 'Too many test alerts. Try again later.' });
+  try {
+    await sendPushNow(topic, 'Test alert', `Phone alerts are working for ${engine.state.settings.companyName}.`, `${baseUrl(req)}/#leads`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: `Couldn't reach the alert service: ${e instanceof Error ? e.message : 'unknown error'}` });
+  }
+});
+
+app.post('/api/admin/users/:id/invite', requireUser(), (req, res) => {
+  const r = req as Authed;
+  if (!can(r.user, 'team:manage')) return res.status(403).json({ error: 'Only owners and managers can send invitations.' });
+  const target = engine.state.users.find((u) => u.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (!target.active) return res.status(400).json({ error: 'Reactivate this user first.' });
+  if (target.role === 'OWNER' && r.user.role !== 'OWNER') return res.status(403).json({ error: 'Only an owner can do this for an owner.' });
+  if (!getCredential(target.id)) setPassword(target.id, target.email, `${generateTempPassword()}${generateTempPassword()}`, true);
+  res.json(issueInvite(req, r.user, target));
 });
 
 app.patch('/api/admin/users/:id', requireUser(), (req, res) => {
@@ -631,7 +953,7 @@ app.get('/api/admin/system', requireUser(), requireAdmin, (_req, res) => {
   } catch {
     /* ignore */
   }
-  res.json({ version: VERSION, demo: DEMO, providers, dbSizeBytes: size, appUrl: APP_URL || null, timeZone: engine.timeZone, users: engine.state.users.length });
+  res.json({ version: VERSION, demo: DEMO, providers: { ...providers, payments: paymentsConfigured }, dbSizeBytes: size, appUrl: APP_URL || null, timeZone: engine.timeZone, users: engine.state.users.length });
 });
 
 app.get('/api/admin/export', requireUser(), (req, res) => {
@@ -766,6 +1088,25 @@ const housekeeping = () => {
   withActor({ protocol: 'http', get: () => 'localhost' } as unknown as Request, null, () => engine.runHousekeeping());
   commit();
   pruneSessions();
+  void syncPendingPayments();
+};
+
+/** Bank payments settle days later. If the webhook isn't set up (or was missed), ask Stripe directly. */
+const syncPendingPayments = async () => {
+  if (!paymentsConfigured) return;
+  const pending = engine.state.invoices.filter((i) => i.onlinePending).slice(0, 20);
+  for (const inv of pending) {
+    try {
+      const sess = await getCheckoutSession(inv.onlinePending!.sessionId);
+      const pi = sess.payment_intent && typeof sess.payment_intent === 'object' ? sess.payment_intent : undefined;
+      const req = { protocol: 'http', get: () => 'localhost' } as unknown as Request;
+      if (sess.payment_status === 'paid') withActor(req, null, () => engine.recordOnlinePayment(inv.id, sess.id, (sess.amount_total || 0) / 100, 'ACH'));
+      else if (pi?.status === 'requires_payment_method' || pi?.status === 'canceled') withActor(req, null, () => engine.failOnlinePayment(inv.id, sess.id));
+    } catch (e) {
+      console.error('[payments] sync', e instanceof Error ? e.message : e);
+    }
+  }
+  if (pending.length) commit();
 };
 housekeeping();
 setInterval(housekeeping, 5 * 60_000).unref();

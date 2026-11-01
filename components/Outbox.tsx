@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { CalendarDays, Inbox, Mail, MessageSquare } from 'lucide-react';
+import { Bell, CalendarDays, Inbox, Mail, MessageSquare } from 'lucide-react';
 import { Badge, EmptyState, PageHeader, SearchInput, Table, Tabs, useStore } from './SharedComponents';
 import { dateTime } from '../services/format';
 
-const icon = { EMAIL: <Mail size={14} />, SMS: <MessageSquare size={14} />, CALENDAR: <CalendarDays size={14} />, INTERNAL: <Inbox size={14} /> };
+const icon = { EMAIL: <Mail size={14} />, SMS: <MessageSquare size={14} />, CALENDAR: <CalendarDays size={14} />, INTERNAL: <Inbox size={14} />, PUSH: <Bell size={14} /> };
 
 const Outbox: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
   const s = useStore();
@@ -16,7 +16,7 @@ const Outbox: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
       {!embedded && <PageHeader eyebrow="Admin" title="Messages" description="Every email, SMS and calendar event the CRM sends." />}
       <p className="mb-4 text-sm text-ink-500"><strong className="text-ink-800">Sent</strong> = delivered to the provider · <strong className="text-ink-800">Logged</strong> = recorded only (provider not configured) · <strong className="text-ink-800">Failed</strong> = provider rejected it.</p>
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <Tabs value={tab} onChange={setTab} items={[{ value: 'all', label: 'All', count: all.length }, { value: 'EMAIL', label: 'Email' }, { value: 'SMS', label: 'SMS' }, { value: 'CALENDAR', label: 'Calendar' }]} />
+        <Tabs value={tab} onChange={setTab} items={[{ value: 'all', label: 'All', count: all.length }, { value: 'EMAIL', label: 'Email' }, { value: 'PUSH', label: 'Phone alerts' }, { value: 'SMS', label: 'SMS' }, { value: 'CALENDAR', label: 'Calendar' }]} />
         <SearchInput value={q} onChange={setQ} placeholder="Search recipient or content" className="md:w-72" />
       </div>
       {list.length === 0 ? (

@@ -36,6 +36,20 @@ const ADMIN_ROLES: Role[] = ['OWNER', 'MANAGER', 'OFFICE_MANAGER'];
 
 export const isAdminRole = (role: Role) => ADMIN_ROLES.includes(role);
 
+/** Who can run site visits and write estimates. Small companies often have the owner do it. */
+export const ESTIMATE_ROLES: Role[] = ['ESTIMATOR', 'OWNER', 'MANAGER', 'OFFICE_MANAGER', 'SALES_REP'];
+/** Estimators first, then anyone else who can run a visit. */
+export const estimatorPool = (users: User[]) => {
+  const act = users.filter((u) => u.active && ESTIMATE_ROLES.includes(u.role));
+  return [...act.filter((u) => u.role === 'ESTIMATOR'), ...act.filter((u) => u.role !== 'ESTIMATOR')];
+};
+/** Crews and subcontractors first, then any other active user (owner-operators do their own jobs). */
+export const crewPool = (users: User[]) => {
+  const act = users.filter((u) => u.active);
+  const crew = (u: User) => u.role === 'WORKER' || u.role === 'SUBCONTRACTOR';
+  return [...act.filter(crew), ...act.filter((u) => !crew(u))];
+};
+
 const PAGE_ACCESS: Record<AppPage, Role[]> = {
   dashboard: ['OWNER', 'MANAGER', 'OFFICE_MANAGER', 'DISPATCHER', 'SALES_REP', 'ESTIMATOR', 'WORKER', 'SUBCONTRACTOR'],
   leads: ['OWNER', 'MANAGER', 'OFFICE_MANAGER', 'DISPATCHER', 'SALES_REP', 'ESTIMATOR'],

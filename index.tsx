@@ -2,6 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { applyBrand, applyTheme, getTheme } from './services/brand';
+
+// Apply saved night-mode choice and default brand before first paint.
+applyTheme(getTheme());
+applyBrand();
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null };
@@ -18,7 +23,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
     if (this.state.error) {
       return (
         <div className="flex min-h-screen items-center justify-center bg-ink-50 p-6">
-          <div className="w-full max-w-md rounded-3xl border border-ink-200 bg-white p-8 text-center shadow-card">
+          <div className="w-full max-w-md rounded-3xl border border-ink-200 bg-surface p-8 text-center shadow-card">
             <h1 className="font-display text-xl font-bold text-ink-950">Something went wrong</h1>
             <p className="mt-2 text-sm text-ink-500">An unexpected error occurred. Reloading usually fixes it — your data is saved in this browser.</p>
             <button

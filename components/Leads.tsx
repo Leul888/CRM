@@ -21,8 +21,8 @@ import {
   run,
   useStore,
 } from './SharedComponents';
-import { can, scopeLeads } from '../services/permissions';
-import { date, dateTime, downloadFile, fromLocalInput, humanize, isEmail, money, relative, toCsv, toDateInput } from '../services/format';
+import { can, estimatorPool, scopeLeads } from '../services/permissions';
+import { date, downloadFile, fromLocalInput, humanize, isEmail, money, relative, toCsv, toDateInput } from '../services/format';
 import { AppointmentForm } from './Appointments';
 import ImportCustomers from './ImportCustomers';
 import { EstimateEditor } from './Estimates';
@@ -54,7 +54,9 @@ export const LeadForm: React.FC<{ lead: Draft; currentUser: User; onClose: () =>
   const [d, setD] = useState<Draft>(lead);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const canAssign = can(currentUser, 'lead:assign');
-  const estimators = s.usersByRole('ESTIMATOR').filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const estPool = estimatorPool(s.state.users);
+  const estCapable = estPool.filter((u) => u.serviceCapabilities.includes(d.serviceType) && (!s.isSpecialist(d.serviceType) || u.qualifiedForRenovation));
+  const estimators = estCapable.length ? estCapable : estPool;
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
@@ -117,9 +119,6 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
   const [confirm, setConfirm] = useState(false);
   const [schedule, setSchedule] = useState(false);
   const [estimate, setEstimate] = useState(false);
-  const appts = s.state.appointments.filter((a) => a.leadId === lead.id);
-  const ests = s.state.estimates.filter((e) => e.leadId === lead.id);
-  const invs = s.state.invoices.filter((i) => i.leadId === lead.id);
 
   const addNote = async () => {
     if (!note.trim()) return;
@@ -165,29 +164,6 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
 
         {lead.notes && <p className="mt-5 whitespace-pre-line rounded-2xl bg-ink-50 p-4 text-sm text-ink-700">{lead.notes}</p>}
 
-        {(appts.length > 0 || ests.length > 0 || invs.length > 0) && (
-          <div className="mt-6">
-            <div className="eyebrow mb-3">Related</div>
-            <div className="space-y-2">
-              {appts.map((a) => (
-                <a key={a.id} href="#appointments" className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-sm hover:border-brand-300">
-                  <span>Visit · {dateTime(a.startTime)} · {s.userName(a.estimatorId)}</span><Badge value={a.status} />
-                </a>
-              ))}
-              {ests.map((e) => (
-                <a key={e.id} href={`#estimates/${e.id}`} className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-sm hover:border-brand-300">
-                  <span>{e.number} · {money(e.total)}</span><Badge value={e.status} />
-                </a>
-              ))}
-              {invs.map((i) => (
-                <a key={i.id} href={`#invoices/${i.id}`} className="flex items-center justify-between rounded-xl border border-ink-200 px-3.5 py-2.5 text-sm hover:border-brand-300">
-                  <span>{i.invoiceNumber} · {money(i.balanceDue)} due</span><Badge value={i.status} />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="mt-6">
           <div className="eyebrow mb-3">Activity</div>
           {can(currentUser, 'lead:edit') && (
@@ -202,7 +178,7 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
           <ol className="mt-4 space-y-4 border-l border-ink-200 pl-5">
             {(lead.activity || []).map((a) => (
               <li key={a.id} className="relative">
-                <span className="absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full bg-white text-brand-600 ring-1 ring-ink-200">{activityIcon(a.kind)}</span>
+                <span className="absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full bg-surface text-brand-600 ring-1 ring-ink-200">{activityIcon(a.kind)}</span>
                 <div className="text-sm text-ink-800">{a.text}</div>
                 <div className="mt-0.5 text-xs text-ink-400">{relative(a.at)}{a.userId ? ` · ${s.userName(a.userId)}` : ''}</div>
               </li>
@@ -213,7 +189,7 @@ const LeadDrawer: React.FC<{ lead: Lead; currentUser: User; onClose: () => void 
       {edit && <LeadForm lead={lead} currentUser={currentUser} onClose={() => setEdit(false)} />}
       {confirm && <ConfirmDialog title="Delete lead?" message={`This permanently removes ${lead.name} and their appointments, estimates, invoices and work orders.`} onConfirm={() => void run(s.deleteLead(lead.id), 'Lead deleted').then(onClose)} onClose={() => setConfirm(false)} />}
       {schedule && <AppointmentForm currentUser={currentUser} initial={{ leadId: lead.id }} onClose={() => setSchedule(false)} />}
-      {estimate && <EstimateEditor currentUser={currentUser} leadId={lead.id} onClose={() => setEstimate(false)} />}
+      {estimate && <EstimateEditor currentUser={currentUser} leadId={lead.id} onClose={() => setEstimate(false)} onSaved={(e) => setTimeout(() => (window.location.hash = `estimates/${e.id}`), 0)} />}
     </>
   );
 };
@@ -299,8 +275,8 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
           <Select value={source} onChange={(e) => setSource(e.target.value)} placeholder="All sources" options={SOURCES.map((x) => ({ value: x, label: humanize(x) }))} />
         </div>
         <div className="inline-flex rounded-full bg-ink-100 p-1">
-          <button onClick={() => setView('table')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'table' ? 'bg-white shadow-sm' : 'text-ink-500'}`} aria-label="Table view"><List size={16} /></button>
-          <button onClick={() => setView('board')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'board' ? 'bg-white shadow-sm' : 'text-ink-500'}`} aria-label="Board view"><KanbanSquare size={16} /></button>
+          <button onClick={() => setView('table')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'table' ? 'bg-surface shadow-sm' : 'text-ink-500'}`} aria-label="Table view"><List size={16} /></button>
+          <button onClick={() => setView('board')} className={`flex h-8 w-9 items-center justify-center rounded-full ${view === 'board' ? 'bg-surface shadow-sm' : 'text-ink-500'}`} aria-label="Board view"><KanbanSquare size={16} /></button>
         </div>
       </div>
 
@@ -360,7 +336,7 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
                 >
                   <div className="flex items-center justify-between px-2 py-2">
                     <span className="text-xs font-bold uppercase tracking-[0.12em] text-ink-600">{humanize(col)}</span>
-                    <span className="rounded-full bg-white px-2 text-xs font-semibold text-ink-600">{items.length}</span>
+                    <span className="rounded-full bg-surface px-2 text-xs font-semibold text-ink-600">{items.length}</span>
                   </div>
                   <div className="min-h-[80px] space-y-2">
                     {items.map((l) => (
@@ -370,7 +346,7 @@ const Leads: React.FC<{ currentUser: User; focusId?: string }> = ({ currentUser,
                         onDragStart={() => setDragId(l.id)}
                         onDragEnd={() => setDragId(null)}
                         onClick={() => open(l.id)}
-                        className="cursor-pointer rounded-xl border border-ink-200/80 bg-white p-3.5 shadow-sm transition hover:border-brand-300 hover:shadow-card"
+                        className="cursor-pointer rounded-xl border border-ink-200/80 bg-surface p-3.5 shadow-sm transition hover:border-brand-300 hover:shadow-card"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-ink-900">{l.name}</span>

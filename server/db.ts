@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { CRMState } from '../types';
 import { STATE_VERSION } from '../core/seed';
 
-const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
+export const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 export const DB_PATH = path.join(DATA_DIR, 'crm.sqlite');
 

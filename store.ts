@@ -20,6 +20,8 @@ export interface Toast {
 
 export interface PublicConfig {
   setupRequired: boolean;
+  salesPage?: boolean;
+  onlinePayments?: boolean;
   demo: boolean;
   demoPassword?: string;
   demoAccounts?: Array<{ name: string; email: string; role: Role }>;
@@ -60,6 +62,60 @@ export interface AuditEntry {
   action: string;
   detail: string | null;
   ip: string | null;
+}
+
+export interface SalesPlan {
+  key: 'starter' | 'pro';
+  name: string;
+  monthly: number;
+  annual: number;
+  users: number;
+  blurb: string;
+  features: string[];
+  popular?: boolean;
+}
+
+export interface SalesPlans {
+  product: string;
+  seller: string;
+  contactEmail: string;
+  contactPhone: string;
+  plans: SalesPlan[];
+  setupFee: number;
+  checkout: boolean;
+}
+
+export interface SignupRow {
+  id: string;
+  created_at: string;
+  company: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  plan: string;
+  billing: string;
+  status: 'started' | 'requested' | 'paid';
+  paid_at: string | null;
+  price: string;
+}
+
+export interface PayView {
+  companyName: string;
+  supportEmail: string;
+  supportPhone: string;
+  invoiceNumber: string;
+  customerName: string;
+  lineItems: Array<{ description: string; quantity: number; unit: string; unitPrice: number; total: number }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  amountPaid: number;
+  balanceDue: number;
+  dueDate: string;
+  status: string;
+  processing: { amount: number; startedAt: string } | null;
+  payEnabled: boolean;
+  methods: string[];
 }
 
 export interface ApprovalView {
@@ -267,6 +323,20 @@ class Store {
     return this.api<{ ok: true; emailEnabled: boolean }>('/auth/forgot', { body: { email } });
   }
 
+  getInvite(token: string) {
+    return this.api<{ name: string; email: string; companyName: string }>(`/auth/invite/${encodeURIComponent(token)}`);
+  }
+
+  async acceptInvite(token: string, password: string) {
+    const r = await this.api<{ user: User; mustChangePassword: boolean }>('/auth/accept-invite', { body: { token, password } });
+    this.me = r.user;
+    this.mustChangePassword = false;
+    await this.refresh();
+    this.phase = 'ready';
+    this.emit();
+    return r;
+  }
+
   resetPassword(token: string, password: string) {
     return this.api('/auth/reset', { body: { token, password } });
   }
@@ -325,6 +395,7 @@ class Store {
   setEstimateStatus = this.remote('setEstimateStatus');
   createInvoiceFromEstimate = this.remote('createInvoiceFromEstimate');
   sendInvoice = this.remote('sendInvoice');
+  payLink = this.remote('payLink');
   recordPayment = this.remote('recordPayment');
   updateInvoiceStatus = this.remote('updateInvoiceStatus');
   saveWorkOrder = this.remote('saveWorkOrder');
@@ -336,6 +407,8 @@ class Store {
   deleteInventoryItem = this.remote('deleteInventoryItem');
   saveProduct = this.remote('saveProduct');
   deleteProduct = this.remote('deleteProduct');
+  loadStarterCatalog = this.remote('loadStarterCatalog');
+  clearProducts = this.remote('clearProducts');
   markNotificationRead = this.remote('markNotificationRead');
   markAllNotificationsRead = this.remote('markAllNotificationsRead');
   saveSettings = this.remote('saveSettings');
@@ -389,8 +462,8 @@ class Store {
     return this.api<{ users: AdminUser[] }>('/admin/users').then((r) => r.users);
   }
 
-  async createUser(input: Partial<User> & { password?: string; sendInvite?: boolean }) {
-    const r = await this.api<{ user: AdminUser; tempPassword?: string }>('/admin/users', { body: input });
+  async createUser(input: Partial<User> & { password?: string; sendInvite?: boolean; accessMode?: 'invite' | 'temp' | 'set' }) {
+    const r = await this.api<{ user: AdminUser; tempPassword?: string; inviteLink?: string; emailed?: boolean }>('/admin/users', { body: input });
     await this.refresh();
     return r;
   }
@@ -403,6 +476,22 @@ class Store {
 
   adminResetPassword(id: string) {
     return this.api<{ tempPassword: string }>(`/admin/users/${encodeURIComponent(id)}/reset-password`, { body: {} });
+  }
+
+  phoneAlerts() {
+    return this.api<{ enabled: boolean; topic: string | null; server: string }>('/admin/alerts');
+  }
+
+  setPhoneAlerts(enabled: boolean) {
+    return this.api<{ enabled: boolean; topic: string | null; server: string }>('/admin/alerts', { body: { enabled } });
+  }
+
+  testPhoneAlert() {
+    return this.api<{ ok: true }>('/admin/alerts/test', { body: {} });
+  }
+
+  sendInvite(id: string, email = true) {
+    return this.api<{ inviteLink: string; emailed: boolean }>(`/admin/users/${encodeURIComponent(id)}/invite`, { body: { sendInvite: email } });
   }
 
   revokeSessions(id: string) {
@@ -474,6 +563,26 @@ class Store {
   // ---------------- public ----------------
   book(input: { name: string; email: string; phone: string; address: string; budget: number; serviceType: ServiceType; preferredDateTime: string; notes: string; website?: string }) {
     return this.api<BookingResult>('/public/booking', { body: input });
+  }
+
+  getPlans() {
+    return this.api<SalesPlans>('/public/plans');
+  }
+
+  startSignup(input: { company: string; name: string; email: string; phone: string; plan: string; billing: string; website?: string }) {
+    return this.api<{ ok: true; url: string | null }>('/public/signup', { body: input });
+  }
+
+  adminSignups() {
+    return this.api<{ enabled: boolean; signups: SignupRow[] }>('/admin/signups');
+  }
+
+  getPayment(token: string) {
+    return this.api<PayView>(`/public/pay/${encodeURIComponent(token)}`);
+  }
+
+  startPayment(token: string) {
+    return this.api<{ url: string }>(`/public/pay/${encodeURIComponent(token)}/checkout`, { body: {} });
   }
 
   getApproval(token: string) {

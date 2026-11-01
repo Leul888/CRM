@@ -15,16 +15,16 @@ const transporter = smtpConfigured
   ? nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465,
+      secure: process.env.SMTP_SECURE === 'true' || [465, 2465].includes(Number(process.env.SMTP_PORT)),
       auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
     })
   : null;
 
 const FROM = process.env.SMTP_FROM || process.env.SMTP_USER || 'no-reply@example.com';
 
-export const sendEmailNow = async (to: string, subject: string, text: string, fromName?: string) => {
+export const sendEmailNow = async (to: string, subject: string, text: string, fromName?: string, replyTo?: string) => {
   if (!transporter) throw new Error('SMTP not configured');
-  await transporter.sendMail({ from: fromName ? `"${fromName.replace(/"/g, '')}" <${FROM}>` : FROM, to, subject, text });
+  await transporter.sendMail({ from: fromName ? `"${fromName.replace(/"/g, '')}" <${FROM}>` : FROM, to, subject, text, replyTo: replyTo && replyTo.includes('@') ? replyTo : undefined });
 };
 
 const toE164 = (phone: string) => {
@@ -45,6 +45,18 @@ const sendSmsNow = async (to: string, body: string) => {
   if (!res.ok) throw new Error(`Twilio ${res.status}: ${(await res.text()).slice(0, 200)}`);
 };
 
+// ---------- phone alerts (ntfy: free push notifications, iPhone + Android) ----------
+export const NTFY_URL = (process.env.NTFY_URL || 'https://ntfy.sh').replace(/\/$/, '');
+
+// HTTP headers must be plain ASCII; ntfy reads a UTF-8 title from the ?title= query instead.
+export const sendPushNow = async (topic: string, title: string, body: string, link?: string) => {
+  const qs = new URLSearchParams({ title });
+  const headers: Record<string, string> = { Priority: 'high', Tags: 'house' };
+  if (link && /^https?:\/\//.test(link)) headers.Click = link;
+  const res = await fetch(`${NTFY_URL}/${encodeURIComponent(topic)}?${qs}`, { method: 'POST', headers, body });
+  if (!res.ok) throw new Error(`ntfy ${res.status}: ${(await res.text()).slice(0, 200)}`);
+};
+
 /** Resolve a user id (used for internal calendar/staff messages) to an address. */
 export type Resolver = (to: string) => { email?: string; phone?: string } | undefined;
 
@@ -52,13 +64,18 @@ export type Resolver = (to: string) => { email?: string; phone?: string } | unde
  * Deliver one message. Returns the final status; never throws.
  * Synchronous result for messages with no provider so the Outbox is accurate immediately.
  */
-export const deliver = async (msg: OutboundMessage, companyName: string, resolve: Resolver): Promise<Pick<OutboundMessage, 'status' | 'error'>> => {
+export const deliver = async (msg: OutboundMessage, companyName: string, resolve: Resolver, replyTo?: string, ntfyTopic?: string): Promise<Pick<OutboundMessage, 'status' | 'error'>> => {
   try {
     if (msg.channel === 'EMAIL') {
       if (!smtpConfigured) return { status: 'LOGGED' };
       const to = msg.to.includes('@') ? msg.to : resolve(msg.to)?.email;
       if (!to) return { status: 'FAILED', error: 'No email address' };
-      await sendEmailNow(to, msg.subject || companyName, msg.body, companyName);
+      await sendEmailNow(to, msg.subject || companyName, msg.body, companyName, replyTo);
+      return { status: 'SENT' };
+    }
+    if (msg.channel === 'PUSH') {
+      if (!ntfyTopic) return { status: 'FAILED', error: 'Phone alerts are turned off' };
+      await sendPushNow(ntfyTopic, msg.subject || companyName, msg.body, msg.link);
       return { status: 'SENT' };
     }
     if (msg.channel === 'SMS') {
@@ -75,4 +92,4 @@ export const deliver = async (msg: OutboundMessage, companyName: string, resolve
   }
 };
 
-export const needsNetwork = (msg: OutboundMessage) => (msg.channel === 'EMAIL' && smtpConfigured) || (msg.channel === 'SMS' && twilioConfigured);
+export const needsNetwork = (msg: OutboundMessage) => msg.channel === 'PUSH' || (msg.channel === 'EMAIL' && smtpConfigured) || (msg.channel === 'SMS' && twilioConfigured);

@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './*.{ts,tsx}', './components/**/*.{ts,tsx}', './pages/**/*.{ts,tsx}', './services/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -8,20 +9,13 @@ export default {
         display: ['"Inter Tight"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
-        ink: {
-          50: '#f7f7fb',
-          100: '#efeff6',
-          200: '#e2e2ee',
-          300: '#c9c9db',
-          400: '#9b9bb4',
-          500: '#6f6f8a',
-          600: '#51516b',
-          700: '#383851',
-          800: '#1f1f36',
-          900: '#12122a',
-          950: '#0a0a1c',
+        ink: Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((k) => [k, `rgb(var(--ink-${k}) / <alpha-value>)`])),
+        surface: 'rgb(var(--surface) / <alpha-value>)',
+        brand: {
+          ...Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((k) => [k, `rgb(var(--brand-${k}) / <alpha-value>)`])),
+          // Fixed dark shade for gradients that carry white text (same in light and dark mode).
+          deep: 'rgb(var(--brand-deep) / <alpha-value>)',
         },
-        brand: Object.fromEntries([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((k) => [k, `rgb(var(--brand-${k}) / <alpha-value>)`])),
         mint: { 400: '#5eead4', 500: '#2dd4bf' },
       },
       boxShadow: {

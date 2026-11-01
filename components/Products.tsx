@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pencil, Plus, Trash2, Wrench } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Trash2, Wrench } from 'lucide-react';
 import type { Product, User } from '../types';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, Textarea, run, useStore } from './SharedComponents';
 import { can } from '../services/permissions';
@@ -44,15 +44,30 @@ const Products: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Draft | null>(null);
   const [del, setDel] = useState<Product | null>(null);
+  const [clearing, setClearing] = useState(false);
   const manage = can(currentUser, 'product:manage');
   const list = s.state.products.filter((p) => !q || `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <div>
-      <PageHeader eyebrow="Catalog" title="Products" description="Packages and materials estimators can drop straight into an estimate." actions={manage ? <Button icon={<Plus size={16} />} onClick={() => setEditing({ ...blank })}>New product</Button> : undefined} />
+      <PageHeader eyebrow="Catalog" title="Products" description="Packages and materials estimators can drop straight into an estimate." actions={
+          manage ? (
+            <>
+              {s.state.products.length > 0 && <Button variant="ghost" icon={<Trash2 size={15} />} onClick={() => setClearing(true)}>Clear all</Button>}
+              <Button variant="outline" icon={<RotateCcw size={15} />} onClick={() => void s.loadStarterCatalog().then((n) => s.toast(n ? `Added ${n} starter product${n === 1 ? '' : 's'}` : 'All starter products are already in your catalog.'))}>Add starter products</Button>
+              <Button icon={<Plus size={16} />} onClick={() => setEditing({ ...blank })}>New product</Button>
+            </>
+          ) : undefined
+        } />
+      {manage && s.state.products.length > 0 && <p className="-mt-6 mb-6 text-sm text-ink-500">Prices are starting points. Click the pencil on any product to set your own price, or delete what you don't offer.</p>}
       <SearchInput value={q} onChange={setQ} placeholder="Search catalog" className="mb-5 md:w-80" />
       {list.length === 0 ? (
-        <EmptyState icon={<Wrench size={22} />} title="No products" />
+        <EmptyState
+          icon={<Wrench size={22} />}
+          title={q ? 'No products match' : 'No products yet'}
+          description={q ? undefined : 'Add your own, or start from a ready-made list of common flooring, tile, paint and remodeling items.'}
+          action={!q && manage ? <Button variant="outline" icon={<RotateCcw size={15} />} onClick={() => void run(s.loadStarterCatalog(), 'Starter products added')}>Add starter products</Button> : undefined}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {list.map((p) => {
@@ -81,6 +96,7 @@ const Products: React.FC<{ currentUser: User }> = ({ currentUser }) => {
         </div>
       )}
       {editing && <ProductForm product={editing} onClose={() => setEditing(null)} />}
+      {clearing && <ConfirmDialog title="Clear the whole catalog?" message={`All ${s.state.products.length} products will be removed. Existing estimates keep their line items. You can add the starter products back any time.`} onConfirm={() => void run(s.clearProducts(), 'Catalog cleared')} onClose={() => setClearing(false)} />}
       {del && <ConfirmDialog title="Delete product?" message={`${del.name} will be removed from the catalog. Existing estimates keep their line items.`} onConfirm={() => void run(s.deleteProduct(del.id), 'Product deleted')} onClose={() => setDel(null)} />}
     </div>
   );

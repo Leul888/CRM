@@ -6,7 +6,7 @@
  */
 import type { CRMState, Estimate, Lead, User, WorkOrder } from '../types';
 import type { CRMEngine } from '../core/engine';
-import { can, isAdminRole, scopeAppointments, scopeEstimates, scopeInvoices, scopeLeads, scopeWorkOrders, type Action } from '../services/permissions';
+import { ESTIMATE_ROLES, can, isAdminRole, scopeAppointments, scopeEstimates, scopeInvoices, scopeLeads, scopeWorkOrders, type Action } from '../services/permissions';
 
 type Ctx = { user: User; state: CRMState };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,12 +65,12 @@ export const ACTION_GUARDS: Record<string, Guard> = {
     const a = args[0];
     if (a.id && !apptIn(ctx, a.id)) return NOT_FOUND;
     if (!leadIn(ctx, a.leadId)) return NOT_FOUND;
-    if (!ctx.state.users.some((u) => u.id === a.estimatorId && u.role === 'ESTIMATOR')) return 'Choose a valid estimator.';
+    if (!ctx.state.users.some((u) => u.id === a.estimatorId && u.active && ESTIMATE_ROLES.includes(u.role))) return 'Choose a valid estimator.';
     if (isNaN(Date.parse(a.startTime)) || isNaN(Date.parse(a.endTime))) return 'Invalid time.';
     args[1] = undefined;
     return null;
   }),
-  setAppointmentStatus: all(perm('appointment:manage'), argIn(0, apptIn), (_c, a) => (['REQUESTED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED'].includes(a[1]) ? null : 'Invalid status.')),
+  setAppointmentStatus: all(perm('appointment:manage'), argIn(0, apptIn), (_c, a) => (['REQUESTED', 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(a[1]) ? null : 'Invalid status.')),
   sendAppointmentReminder: all(perm('appointment:manage'), argIn(0, apptIn)),
 
   // ----- estimates -----
@@ -97,6 +97,7 @@ export const ACTION_GUARDS: Record<string, Guard> = {
     return null;
   }),
   sendInvoice: all(perm('invoice:manage'), argIn(0, invIn)),
+  payLink: all(perm('invoice:manage'), argIn(0, invIn)),
   recordPayment: all(perm('invoice:manage'), argIn(0, invIn), (_c, a) => (Number.isFinite(Number(a[1])) ? ((a[1] = Number(a[1])), null) : 'Invalid amount.')),
   updateInvoiceStatus: all(perm('invoice:manage'), argIn(0, invIn), (_c, a) => (['CANCELLED', 'SENT', 'DRAFT'].includes(a[1]) ? null : 'Use Record payment to mark invoices paid.')),
 
@@ -110,7 +111,7 @@ export const ACTION_GUARDS: Record<string, Guard> = {
     w.leadId = est.leadId;
     w.status = existing?.status || 'ASSIGNED';
     w.attachments = existing?.attachments || [];
-    if (!ctx.state.users.some((u) => u.id === w.assignedWorkerId && ['WORKER', 'SUBCONTRACTOR'].includes(u.role))) return 'Assign a crew member.';
+    if (!ctx.state.users.some((u) => u.id === w.assignedWorkerId && u.active)) return 'Assign a crew member.';
     return null;
   }),
   updateWorkOrderStatus: all(perm('workorder:update-status'), argIn(0, woIn), (ctx, a) => {
@@ -127,6 +128,8 @@ export const ACTION_GUARDS: Record<string, Guard> = {
   deleteInventoryItem: perm('inventory:manage'),
   saveProduct: all(perm('product:manage'), argObj(0)),
   deleteProduct: perm('product:manage'),
+  loadStarterCatalog: perm('product:manage'),
+  clearProducts: perm('product:manage'),
 
   // ----- notifications (always own) -----
   markNotificationRead: (ctx, a) => (ctx.state.notifications.some((n) => n.id === a[0] && n.userId === ctx.user.id) ? null : NOT_FOUND),
@@ -144,6 +147,8 @@ export const ACTION_GUARDS: Record<string, Guard> = {
     delete next.logoDataUrl;
     delete next.logoVersion;
     if (next.brandColor !== undefined && !/^#[0-9a-f]{6}$/i.test(String(next.brandColor))) return 'Brand color must look like #4b3ab3.';
+    // Phone alerts are managed by their own admin endpoint.
+    delete next.ntfyTopic;
     if (next.services !== undefined) {
       const list = next.services as Array<Record<string, unknown>>;
       if (!Array.isArray(list) || list.length === 0 || list.length > 60) return 'Keep between 1 and 60 services.';
@@ -202,6 +207,6 @@ export const scopeState = (user: User, state: CRMState): CRMState => {
     notifications: state.notifications.filter((n) => n.userId === user.id).slice(0, 100),
     outbox: admin ? state.outbox.slice(0, 300) : [],
     users: state.users,
-    settings: (({ logoDataUrl: _logo, ...rest }) => rest)(state.settings),
+    settings: (({ logoDataUrl: _logo, ntfyTopic, ...rest }) => (admin ? { ...rest, ntfyTopic } : rest))(state.settings),
   };
 };

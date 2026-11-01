@@ -17,6 +17,7 @@ import type {
   WorkOrder,
 } from '../types';
 import { humanize } from '../services/format';
+import { starterProducts } from './starterCatalog';
 
 export const STATE_VERSION = 4;
 
@@ -433,7 +434,7 @@ export const buildEmptyState = (admin: User, companyName: string): CRMState => (
   invoices: [],
   workOrders: [],
   inventoryItems: [],
-  products: [],
+  products: starterProducts(),
   notifications: [],
   outbox: [],
   settings: { ...DEFAULT_SETTINGS(companyName), ownerName: admin.name, supportEmail: admin.email },

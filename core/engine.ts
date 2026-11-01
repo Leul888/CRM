@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { assignEstimatorForService } from '../services/assignmentService';
 import { humanize, money } from '../services/format';
+import { starterProducts } from './starterCatalog';
 import { buildSeedState, isoDaysFromNow, round, token, uid, STATE_VERSION } from './seed';
 import { activeServices, isSpecialistService, serviceDefs, serviceLabel } from '../services/catalog';
 
@@ -33,6 +34,8 @@ export class CRMEngine {
   actorId: string | null = null;
   /** Public base URL used in client-facing links. */
   appUrl = '';
+  /** Set by the server when the company's Stripe account is connected for invoice payments. */
+  onlinePayments = false;
   /** IANA zone used when formatting times inside messages. */
   timeZone = 'America/New_York';
   /** Messages created during the current action, awaiting delivery. */
@@ -55,6 +58,13 @@ export class CRMEngine {
 
   private email(input: { to: string; subject: string; body: string }) {
     this.queue('EMAIL', input.to, input.subject, input.body);
+  }
+
+  private push(title: string, body: string, link?: string) {
+    if (!this.state.settings.ntfyTopic) return;
+    const entry: OutboundMessage = { id: uid('msg'), channel: 'PUSH', to: "Owner's phone", subject: title, body, link, sentAt: new Date().toISOString(), status: 'QUEUED' };
+    this.state.outbox = [entry, ...(this.state.outbox || [])].slice(0, 500);
+    this.pending.push(entry);
   }
 
   private sms(input: { to: string; message: string }) {
@@ -232,7 +242,7 @@ export class CRMEngine {
       : [payload, ...this.state.appointments];
 
     const lead = this.leadById(payload.leadId);
-    if (lead && ['NEW', 'CONTACTED'].includes(lead.status) && payload.status !== 'CANCELLED') {
+    if (lead && ['NEW', 'CONTACTED'].includes(lead.status) && !['CANCELLED', 'NO_SHOW'].includes(payload.status)) {
       this.updateLeadStatus(lead.id, 'SCHEDULED', false);
     }
     if (lead) {
@@ -244,7 +254,7 @@ export class CRMEngine {
       );
     }
 
-    if (options?.syncCalendar !== false && payload.status !== 'CANCELLED') {
+    if (options?.syncCalendar !== false && !['CANCELLED', 'NO_SHOW'].includes(payload.status)) {
       this.calendar(payload.estimatorId, existing ? 'Calendar event updated' : 'Calendar event created', `${payload.googleCalendarEventId} · ${humanize(payload.status)} · ${new Date(payload.startTime).toLocaleString('en-US', { timeZone: this.timeZone })}`);
     }
 
@@ -255,7 +265,7 @@ export class CRMEngine {
   setAppointmentStatus(appointmentId: string, status: Appointment['status']) {
     const appointment = this.state.appointments.find((item) => item.id === appointmentId);
     if (!appointment) return;
-    if (status === 'CANCELLED') {
+    if (status === 'CANCELLED' || status === 'NO_SHOW') {
       this.saveAppointment({ ...appointment, status }, { syncCalendar: false });
       this.calendar(appointment.estimatorId, 'Calendar event cancelled', appointment.googleCalendarEventId || appointment.id);
       return;
@@ -340,14 +350,38 @@ export class CRMEngine {
     });
 
     const estimator = this.state.users.find((user) => user.id === assignment.estimatorId);
+    // 1) The customer gets a confirmation email.
     this.email({
       to: lead.email,
       subject: `We received your request — ${this.state.settings.companyName}`,
-      body: `Hi ${lead.name}, thanks for reaching out. ${estimator ? `${estimator.name} will` : 'An estimator will'} confirm your visit for ${start.toLocaleString('en-US', { timeZone: this.timeZone })} shortly.`,
+      body: `Hi ${lead.name}, thanks for reaching out. We'll confirm your estimate visit for ${start.toLocaleString('en-US', { timeZone: this.timeZone })} shortly.`,
     });
-    if (estimator) {
-      this.email({ to: estimator.email, subject: 'New estimate request assigned', body: `${lead.name} requested an estimate for ${serviceLabel(input.serviceType)}.` });
-      this.sms({ to: estimator.phone, message: `New appointment request: ${lead.name} on ${start.toLocaleString('en-US', { timeZone: this.timeZone })}` });
+    // 2) The owner gets a phone alert (ntfy). Without phone alerts, the company inbox gets an email instead.
+    if (this.state.settings.ntfyTopic) {
+      this.push('New lead', `${lead.name} · ${serviceLabel(input.serviceType)}`, `${this.appUrl}/#leads/${lead.id}`);
+    } else {
+      const inbox = (this.state.settings.supportEmail || '').trim();
+      if (inbox) {
+        this.email({
+          to: inbox,
+          subject: `New website inquiry: ${lead.name} (${serviceLabel(input.serviceType)})`,
+          body: [
+            `A new estimate request came in from your website.`,
+            ``,
+            `Name: ${input.name}`,
+            `Email: ${input.email}`,
+            `Phone: ${input.phone || '—'}`,
+            `Address: ${input.address || '—'}`,
+            `Service: ${serviceLabel(input.serviceType)}`,
+            `Budget: ${input.budget ? `$${Number(input.budget).toLocaleString('en-US')}` : '—'}`,
+            `Preferred visit: ${start.toLocaleString('en-US', { timeZone: this.timeZone })}`,
+            `Assigned to: ${estimator?.name || 'Unassigned'}`,
+            input.notes ? `\nNotes: ${input.notes}` : '',
+            ``,
+            `Open the lead: ${this.appUrl}/#leads/${lead.id}`,
+          ].join('\n'),
+        });
+      }
     }
 
     return { lead, appointment, assignment, estimator, duplicate: !!duplicate };
@@ -463,6 +497,8 @@ export class CRMEngine {
     if (status === 'APPROVED') {
       this.updateLeadStatus(estimate.leadId, 'APPROVED', false);
       this.logActivity(estimate.leadId, `Estimate ${estimate.number} marked approved by staff.`);
+      // Same as an e-signed approval: a draft invoice is ready to send.
+      this.createInvoiceFromEstimate(estimate.id, false);
     }
     this.notify();
   }
@@ -476,7 +512,8 @@ export class CRMEngine {
   createInvoiceFromEstimate(estimateId: string, notify = true) {
     const estimate = this.state.estimates.find((item) => item.id === estimateId);
     if (!estimate) return null;
-    const existing = this.state.invoices.find((invoice) => invoice.estimateId === estimateId);
+    // A voided invoice doesn't count: the job can be billed again.
+    const existing = this.state.invoices.find((invoice) => invoice.estimateId === estimateId && invoice.status !== 'CANCELLED');
     if (existing) return existing;
     const lead = this.leadById(estimate.leadId);
     if (!lead) return null;
@@ -499,6 +536,7 @@ export class CRMEngine {
       dueDate: isoDaysFromNow(this.state.settings.invoiceTermsDays ?? 14),
       createdAt: new Date().toISOString(),
       payments: [],
+      payToken: token(),
     };
 
     this.state.invoices = [invoice, ...this.state.invoices];
@@ -507,9 +545,22 @@ export class CRMEngine {
     return invoice;
   }
 
+  /** The customer's pay-online link (creates the secret the first time). */
+  payLink(invoiceId: string) {
+    let invoice = this.state.invoices.find((i) => i.id === invoiceId);
+    if (!invoice) return '';
+    if (!invoice.payToken) {
+      const payToken = token();
+      this.state.invoices = this.state.invoices.map((i) => (i.id === invoiceId ? { ...i, payToken } : i));
+      invoice = { ...invoice, payToken };
+    }
+    return `${this.appUrl}/#pay/${invoice.payToken}`;
+  }
+
   sendInvoice(invoiceId: string) {
     const invoice = this.state.invoices.find((i) => i.id === invoiceId);
     if (!invoice) return;
+    const link = this.onlinePayments && invoice.balanceDue > 0 ? this.payLink(invoiceId) : '';
     this.state.invoices = this.state.invoices.map((i) => (i.id === invoiceId && i.status === 'DRAFT' ? { ...i, status: 'SENT' } : i));
     const lead = this.leadById(invoice.leadId);
     if (lead && !['PAID'].includes(lead.status)) this.updateLeadStatus(lead.id, 'INVOICED', false);
@@ -517,7 +568,7 @@ export class CRMEngine {
     this.email({
       to: invoice.customerEmail,
       subject: `Invoice ${invoice.invoiceNumber} from ${this.state.settings.companyName}`,
-      body: `Hi ${invoice.customerName}, your invoice for ${money(invoice.total)} is due ${new Date(invoice.dueDate).toLocaleDateString('en-US', { timeZone: this.timeZone })}. Balance: ${money(invoice.balanceDue)}.`,
+      body: `Hi ${invoice.customerName}, your invoice for ${money(invoice.total)} is due ${new Date(invoice.dueDate).toLocaleDateString('en-US', { timeZone: this.timeZone })}. Balance: ${money(invoice.balanceDue)}.${link ? `\n\nView and pay online (card or bank account): ${link}` : ''}`,
     });
     this.notify();
   }
@@ -542,6 +593,42 @@ export class CRMEngine {
     this.email({ to: invoice.customerEmail, subject: `Receipt for ${invoice.invoiceNumber}`, body: `Thanks! We received ${money(amount)}. Remaining balance: ${money(Math.max(0, balanceDue))}.` });
     this.notify();
     return { success: true as const };
+  }
+
+  /** Record a payment confirmed by Stripe. Safe to call more than once for the same checkout. */
+  recordOnlinePayment(invoiceId: string, sessionId: string, amount: number, method: 'CARD' | 'ACH') {
+    const invoice = this.state.invoices.find((i) => i.id === invoiceId);
+    if (!invoice) return { error: 'Invoice not found.' };
+    const ref = `Stripe ${sessionId}`;
+    if ((invoice.payments || []).some((p) => p.reference === ref)) return { success: true as const, duplicate: true };
+    this.state.invoices = this.state.invoices.map((i) => (i.id === invoiceId && i.onlinePending?.sessionId === sessionId ? { ...i, onlinePending: undefined } : i));
+    // Never record more than is owed (e.g. the office also logged a check for the same bill).
+    const amt = Math.min(round(amount), this.state.invoices.find((i) => i.id === invoiceId)!.balanceDue);
+    if (!(amt > 0)) {
+      this.notifyInternalAdmins('SYSTEM', 'Online payment needs review', `${money(amount)} was paid online on ${invoice.invoiceNumber}, but the invoice has no balance left. Check for a double payment in Stripe.`, invoice.id);
+      this.notify();
+      return { success: true as const };
+    }
+    return this.recordPayment(invoiceId, amt, method, ref);
+  }
+
+  markOnlinePending(invoiceId: string, sessionId: string, amount: number) {
+    const invoice = this.state.invoices.find((i) => i.id === invoiceId);
+    if (!invoice || (invoice.payments || []).some((p) => p.reference === `Stripe ${sessionId}`)) return;
+    if (invoice.onlinePending?.sessionId === sessionId) return;
+    this.state.invoices = this.state.invoices.map((i) => (i.id === invoiceId ? { ...i, onlinePending: { sessionId, amount: round(amount), startedAt: new Date().toISOString() } } : i));
+    this.logActivity(invoice.leadId, `Bank payment of ${money(amount)} started online for ${invoice.invoiceNumber} (usually clears in about 4 business days).`);
+    this.notifyInternalAdmins('PAYMENT_RECEIVED', 'Bank payment started', `${invoice.customerName} started a ${money(amount)} bank payment on ${invoice.invoiceNumber}. It will be recorded when it clears.`, invoice.id);
+    this.notify();
+  }
+
+  failOnlinePayment(invoiceId: string, sessionId: string) {
+    const invoice = this.state.invoices.find((i) => i.id === invoiceId);
+    if (!invoice || invoice.onlinePending?.sessionId !== sessionId) return;
+    this.state.invoices = this.state.invoices.map((i) => (i.id === invoiceId ? { ...i, onlinePending: undefined } : i));
+    this.logActivity(invoice.leadId, `Bank payment on ${invoice.invoiceNumber} failed.`);
+    this.notifyInternalAdmins('UNPAID_INVOICE', 'Bank payment failed', `The online bank payment on ${invoice.invoiceNumber} (${invoice.customerName}) did not go through.`, invoice.id);
+    this.notify();
   }
 
   updateInvoiceStatus(invoiceId: string, status: Invoice['status']) {
@@ -641,6 +728,21 @@ export class CRMEngine {
     this.notify();
   }
 
+  /** Add the starter catalog (skips anything whose SKU is already in the catalog). Returns how many were added. */
+  loadStarterCatalog() {
+    const have = new Set(this.state.products.map((p) => p.sku.toUpperCase()));
+    const add = starterProducts().filter((p) => !have.has(p.sku.toUpperCase()));
+    this.state.products = [...this.state.products, ...add];
+    this.notify();
+    return add.length;
+  }
+
+  /** Remove every product. Existing estimates keep their line items. */
+  clearProducts() {
+    this.state.products = [];
+    this.notify();
+  }
+
   // ---------- notifications ----------
   markNotificationRead(notificationId: string) {
     this.state.notifications = this.state.notifications.map((item) =>
@@ -701,7 +803,7 @@ export class CRMEngine {
     if (changed) this.notify();
   }
 
-  private notifyInternalAdmins(type: Notification['type'], title: string, message: string, relatedEntityId?: string) {
+  notifyInternalAdmins(type: Notification['type'], title: string, message: string, relatedEntityId?: string) {
     const adminRoles: Role[] = ['OWNER', 'OFFICE_MANAGER'];
     for (const user of this.state.users.filter((item) => adminRoles.includes(item.role))) {
       this.state.notifications = [
